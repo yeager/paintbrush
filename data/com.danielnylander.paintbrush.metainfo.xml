@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.danielnylander.paintbrush</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <_name>PaintBrush</_name>
+  <_summary>Simple painting and drawing application for Linux</_summary>
+  <description>
+    <_p>
+      PaintBrush is a simple yet powerful paint program for Linux, inspired by 
+      classic Windows Paint but with modern GTK4 features. Perfect for quick 
+      sketches, simple drawings, and basic image editing.
+    </_p>
+    <_p>Features include:</_p>
+    <ul>
+      <_li>Multiple drawing tools: brush, eraser, line, rectangle, circle</_li>
+      <_li>Adjustable brush sizes and colors</_li>
+      <_li>Load and save PNG, JPEG, and GIF images</_li>
+      <_li>Clean, intuitive interface</_li>
+      <_li>Smooth drawing with Cairo graphics</_li>
+    </ul>
+  </description>
+  <categories>
+    <category>Graphics</category>
+    <category>2DGraphics</category>
+    <category>RasterGraphics</category>
+  </categories>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://example.com/screenshot.png</image>
+      <caption>Main drawing interface</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/yeager/paintbrush</url>
+  <url type="bugtracker">https://github.com/yeager/paintbrush/issues</url>
+  <developer_name>Daniel Nylander</developer_name>
+  <releases>
+    <release version="1.0.0" date="2026-03-14">
+      <description>
+        <p>Initial release with core painting functionality</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

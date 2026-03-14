@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Exec=paintbrush
+Icon=com.danielnylander.paintbrush
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;GTK;
+StartupNotify=true
+MimeType=image/png;image/jpeg;image/gif;

@@ -1,0 +1,112 @@
+        <interface>
+          <object class="GtkShortcutsWindow" id="shortcuts">
+            <property name="modal">True</property>
+            <child>
+              <object class="GtkShortcutsSection">
+                <property name="section-name">shortcuts</property>
+                <child>
+                  <object class="GtkShortcutsGroup">
+                    <property name="title" translatable="yes">General</property>
+                    <child>
+                      <object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Preferences</property>
+                        <property name="accelerator">&lt;Primary&gt;comma</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Export Schedule</property>
+                        <property name="accelerator">&lt;Primary&gt;e</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Refresh</property>
+                        <property name="accelerator">F5</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Keyboard Shortcuts</property>
+                        <property name="accelerator">&lt;Primary&gt;slash</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">About</property>
+                        <property name="accelerator">F1</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Quit</property>
+                        <property name="accelerator">&lt;Primary&gt;q</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </interface>
+        ''')
+        shortcuts = builder.get_object("shortcuts")
+        shortcuts.set_transient_for(self)
+        shortcuts.present()
+
+CONFIG_DIR = Path(GLib.get_user_config_dir()) / "bildstod"
+
+def _load_settings():
+    path = CONFIG_DIR / "settings.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+def _save_settings(settings):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (CONFIG_DIR / "settings.json").write_text(
+        json.dumps(settings, indent=2, ensure_ascii=False))
+    def _show_welcome(self, win):
+        dialog = Adw.Dialog()
+        dialog.set_title(_("Welcome"))
+        dialog.set_content_width(420)
+        dialog.set_content_height(480)
+
+        page = Adw.StatusPage()
+        page.set_icon_name("se.danielnylander.bildstod")
+        page.set_title(_("Welcome to Visual Support"))
+        page.set_description(_(
+            "Picture-based communication and scheduling.\n\n"
+            "✓ Create visual schedules with pictograms\n"
+            "✓ Search 13,000+ ARASAAC pictograms\n"
+            "✓ Search in Swedish or English\n"
+            "✓ Export and share schedules"
+        ))
+
+        btn = Gtk.Button(label=_("Get Started"))
+        btn.add_css_class("suggested-action")
+        btn.add_css_class("pill")
+        btn.set_halign(Gtk.Align.CENTER)
+        btn.set_margin_top(12)
+        btn.connect("clicked", self._on_welcome_close, dialog)
+        page.set_child(btn)
+
+        box = Adw.ToolbarView()
+        hb = Adw.HeaderBar()
+        hb.set_show_title(False)
+        box.add_top_bar(hb)
+        box.set_content(page)
+        dialog.set_child(box)
+        dialog.present(win)
+
+    def _on_welcome_close(self, btn, dialog):
+        self.settings["welcome_shown"] = True
+        _save_settings(self.settings)
+        dialog.close()
+
+    def _on_preferences(self, *_args):
+        prefs = Adw.PreferencesDialog()
+        prefs.set_title(_("Preferences"))

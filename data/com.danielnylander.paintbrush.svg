@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="#f9f9f9" stroke="#333" stroke-width="2"/>
+  
+  <!-- Palette -->
+  <ellipse cx="64" cy="64" rx="40" ry="25" fill="#fff" stroke="#333" stroke-width="2"/>
+  
+  <!-- Color blobs -->
+  <circle cx="45" cy="55" r="6" fill="#e74c3c"/>
+  <circle cx="60" cy="50" r="6" fill="#f39c12"/>
+  <circle cx="75" cy="55" r="6" fill="#f1c40f"/>
+  <circle cx="85" cy="70" r="6" fill="#2ecc71"/>
+  <circle cx="75" cy="80" r="6" fill="#3498db"/>
+  <circle cx="60" cy="82" r="6" fill="#9b59b6"/>
+  <circle cx="45" cy="78" r="6" fill="#34495e"/>
+  
+  <!-- Paint brush -->
+  <g transform="translate(35, 25) rotate(45, 25, 25)">
+    <!-- Brush handle -->
+    <rect x="20" y="35" width="8" height="30" rx="4" fill="#8b4513"/>
+    <!-- Metal ferrule -->
+    <rect x="19" y="32" width="10" height="8" fill="#c0c0c0"/>
+    <!-- Brush bristles -->
+    <ellipse cx="24" cy="28" rx="6" ry="8" fill="#ddd"/>
+    <!-- Paint on brush -->
+    <ellipse cx="24" cy="24" rx="3" ry="4" fill="#e74c3c"/>
+  </g>
+</svg>
