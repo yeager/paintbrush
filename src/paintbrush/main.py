@@ -2,7 +2,7 @@
 """
 PaintBrush - Enhanced mid-level drawing application
 Modern GTK4/Adwaita application with Cairo graphics
-Version 1.4.0 with layers, crop, rotate, resize, brush shapes, gradient, clipboard, recent files
+Version 2.0.0 — professional paint app with full color picker, selections, transforms, filters
 """
 
 import gi
@@ -19,6 +19,7 @@ import gettext
 import json
 import random
 import struct
+import colorsys
 from pathlib import Path
 
 # Internationalization setup
@@ -90,6 +91,22 @@ DEFAULT_PALETTE = [
     (1.0, 0.87, 0.75), (1.0, 0.81, 0.66), (0.96, 0.72, 0.53), (0.87, 0.63, 0.44),
     (0.78, 0.55, 0.37), (0.63, 0.42, 0.27), (0.44, 0.26, 0.13), (0.29, 0.15, 0.07),
 ]
+
+BLEND_MODES = ["normal", "multiply", "screen", "overlay", "darken", "lighten"]
+
+BLEND_MODE_LABELS = {
+    "normal": _("Normal"), "multiply": _("Multiply"), "screen": _("Screen"),
+    "overlay": _("Overlay"), "darken": _("Darken"), "lighten": _("Lighten"),
+}
+
+BLEND_MODE_OPERATORS = {
+    "normal": cairo.OPERATOR_OVER,
+    "multiply": cairo.OPERATOR_MULTIPLY,
+    "screen": cairo.OPERATOR_SCREEN,
+    "overlay": cairo.OPERATOR_OVERLAY,
+    "darken": cairo.OPERATOR_DARKEN,
+    "lighten": cairo.OPERATOR_LIGHTEN,
+}
 
 # Supported file formats
 OPEN_FORMATS = {
@@ -241,10 +258,14 @@ class DrawingArea(Gtk.DrawingArea):
 
         # Selection state
         self.selection = None  # (x, y, w, h) or None
+        self.selection_type = "rect"  # "rect", "ellipse", "lasso", "color"
+        self.selection_points = []  # for lasso
         self.selection_surface = None
         self.selection_dragging = False
         self.selection_offset_x = 0
         self.selection_offset_y = 0
+        self.selection_feather = 0
+        self.color_select_tolerance = 15
 
         # Preview surface for shape drawing
         self.preview_surface = None
@@ -255,6 +276,19 @@ class DrawingArea(Gtk.DrawingArea):
 
         # Recent colors
         self.recent_colors = []
+
+        # Smooth brush
+        self.smooth_brush = True
+        self.stroke_points = []
+
+        # Bezier path tool
+        self.bezier_points = []  # list of (x, y) anchor points
+
+        # Show rulers
+        self.show_rulers = True
+
+        # Pixel grid (auto at >400% zoom)
+        self.show_pixel_grid = True
 
         # Undo/Redo
         undo_limit = settings.get("undo_history_limit", 50)
@@ -308,7 +342,7 @@ class DrawingArea(Gtk.DrawingArea):
         self.ctx.set_operator(cairo.OPERATOR_OVER)
 
         # Initialize layers
-        self.layers = [{"name": _("Background"), "surface": self.surface, "visible": True}]
+        self.layers = [{"name": _("Background"), "surface": self.surface, "visible": True, "opacity": 1.0, "blend_mode": "normal"}]
         self.active_layer_index = 0
 
         self.set_size_request(self.width, self.height)
@@ -332,11 +366,16 @@ class DrawingArea(Gtk.DrawingArea):
         """Draw callback - composite all layers to screen with zoom"""
         ctx.scale(self.zoom_level, self.zoom_level)
 
-        # Composite all visible layers
+        # Composite all visible layers with blend modes and opacity
         for layer in self.layers:
             if layer["visible"]:
+                blend = layer.get("blend_mode", "normal")
+                opacity = layer.get("opacity", 1.0)
+                op = BLEND_MODE_OPERATORS.get(blend, cairo.OPERATOR_OVER)
+                ctx.set_operator(op)
                 ctx.set_source_surface(layer["surface"], 0, 0)
-                ctx.paint()
+                ctx.paint_with_alpha(opacity)
+        ctx.set_operator(cairo.OPERATOR_OVER)
 
         # Draw preview surface (for shape previews)
         if self.preview_surface:
@@ -346,6 +385,10 @@ class DrawingArea(Gtk.DrawingArea):
         # Draw grid overlay
         if self.show_grid:
             self._draw_grid(ctx)
+
+        # Draw pixel grid when zoomed in >400%
+        if self.show_pixel_grid and self.zoom_level > 4.0:
+            self._draw_pixel_grid(ctx)
 
         # Draw crop rectangle
         if self.crop_rect:
@@ -368,24 +411,78 @@ class DrawingArea(Gtk.DrawingArea):
             ctx.stroke()
             ctx.set_dash([])
 
-        # Draw selection rectangle
+        # Draw selection
         if self.selection:
             sx, sy, sw, sh = self.selection
             ctx.set_dash([4, 4])
             ctx.set_source_rgba(0, 0, 0, 0.8)
             ctx.set_line_width(1)
-            ctx.rectangle(sx, sy, sw, sh)
-            ctx.stroke()
-            ctx.set_dash([4, 4], 4)
-            ctx.set_source_rgba(1, 1, 1, 0.8)
-            ctx.rectangle(sx, sy, sw, sh)
-            ctx.stroke()
+            if self.selection_type == "ellipse":
+                ctx.save()
+                ctx.translate(sx + sw / 2, sy + sh / 2)
+                ctx.scale(sw / 2, sh / 2)
+                ctx.arc(0, 0, 1, 0, 2 * math.pi)
+                ctx.restore()
+                ctx.stroke()
+                ctx.set_dash([4, 4], 4)
+                ctx.set_source_rgba(1, 1, 1, 0.8)
+                ctx.save()
+                ctx.translate(sx + sw / 2, sy + sh / 2)
+                ctx.scale(sw / 2, sh / 2)
+                ctx.arc(0, 0, 1, 0, 2 * math.pi)
+                ctx.restore()
+                ctx.stroke()
+            elif self.selection_type == "lasso" and self.selection_points:
+                ctx.move_to(*self.selection_points[0])
+                for pt in self.selection_points[1:]:
+                    ctx.line_to(*pt)
+                ctx.close_path()
+                ctx.stroke()
+                ctx.set_dash([4, 4], 4)
+                ctx.set_source_rgba(1, 1, 1, 0.8)
+                ctx.move_to(*self.selection_points[0])
+                for pt in self.selection_points[1:]:
+                    ctx.line_to(*pt)
+                ctx.close_path()
+                ctx.stroke()
+            else:
+                ctx.rectangle(sx, sy, sw, sh)
+                ctx.stroke()
+                ctx.set_dash([4, 4], 4)
+                ctx.set_source_rgba(1, 1, 1, 0.8)
+                ctx.rectangle(sx, sy, sw, sh)
+                ctx.stroke()
             ctx.set_dash([])
 
             # Draw selection content if being moved
             if self.selection_surface:
                 ctx.set_source_surface(self.selection_surface, sx, sy)
                 ctx.paint()
+
+        # Draw bezier path preview
+        if self.bezier_points:
+            ctx.set_dash([3, 3])
+            ctx.set_source_rgba(0.2, 0.5, 1.0, 0.8)
+            ctx.set_line_width(1)
+            ctx.move_to(*self.bezier_points[0])
+            for pt in self.bezier_points[1:]:
+                ctx.line_to(*pt)
+            ctx.stroke()
+            ctx.set_dash([])
+            for pt in self.bezier_points:
+                ctx.arc(pt[0], pt[1], 3, 0, 2 * math.pi)
+                ctx.fill()
+
+        # Draw lasso preview during drawing
+        if self.tool == "select_lasso" and self.drawing and self.selection_points:
+            ctx.set_dash([3, 3])
+            ctx.set_source_rgba(0.2, 0.5, 1.0, 0.8)
+            ctx.set_line_width(1)
+            ctx.move_to(*self.selection_points[0])
+            for pt in self.selection_points[1:]:
+                ctx.line_to(*pt)
+            ctx.stroke()
+            ctx.set_dash([])
 
     def _draw_grid(self, ctx):
         """Draw grid overlay"""
@@ -396,6 +493,18 @@ class DrawingArea(Gtk.DrawingArea):
             ctx.move_to(x, 0)
             ctx.line_to(x, self.height)
         for y in range(0, self.height + 1, gs):
+            ctx.move_to(0, y)
+            ctx.line_to(self.width, y)
+        ctx.stroke()
+
+    def _draw_pixel_grid(self, ctx):
+        """Draw 1px pixel grid when zoomed in >400%"""
+        ctx.set_source_rgba(0.3, 0.3, 0.3, 0.15)
+        ctx.set_line_width(0.5 / self.zoom_level)
+        for x in range(0, self.width + 1):
+            ctx.move_to(x, 0)
+            ctx.line_to(x, self.height)
+        for y in range(0, self.height + 1):
             ctx.move_to(0, y)
             ctx.line_to(self.width, y)
         ctx.stroke()
@@ -458,6 +567,7 @@ class DrawingArea(Gtk.DrawingArea):
 
         if self.tool in ["brush", "eraser", "spray"]:
             self.save_state_for_undo()
+            self.stroke_points = [(start_x, start_y)]
 
         if self.tool == "crop":
             # Start crop rectangle
@@ -475,12 +585,19 @@ class DrawingArea(Gtk.DrawingArea):
             self.flood_fill(int(start_x), int(start_y))
         elif self.tool == "polygon":
             self.polygon_points.append((start_x, start_y))
+        elif self.tool == "bezier":
+            self.bezier_points.append((start_x, start_y))
+            self.queue_draw()
         elif self.tool == "text":
             self.save_state_for_undo()
             self.draw_text(start_x, start_y)
         elif self.tool == "eyedropper":
             self.pick_color(int(start_x), int(start_y))
-        elif self.tool == "select":
+        elif self.tool == "select_color":
+            self.select_by_color(int(start_x), int(start_y))
+        elif self.tool == "select_lasso":
+            self.selection_points = [(start_x, start_y)]
+        elif self.tool in ["select", "select_ellipse"]:
             # Check if clicking inside existing selection to move it
             if self.selection:
                 sx, sy, sw, sh = self.selection
@@ -530,7 +647,7 @@ class DrawingArea(Gtk.DrawingArea):
             self.draw_arrow(self.drag_start_x, self.drag_start_y, end_x, end_y)
         elif self.tool == "rounded_rectangle":
             self.draw_rounded_rectangle(self.drag_start_x, self.drag_start_y, end_x, end_y)
-        elif self.tool == "select":
+        elif self.tool in ["select", "select_ellipse"]:
             if not self.selection_dragging:
                 x1, y1 = self.drag_start_x, self.drag_start_y
                 x2, y2 = end_x, end_y
@@ -540,8 +657,16 @@ class DrawingArea(Gtk.DrawingArea):
                 sh = abs(y2 - y1)
                 if sw > 2 and sh > 2:
                     self.selection = (sx, sy, sw, sh)
+                    self.selection_type = "ellipse" if self.tool == "select_ellipse" else "rect"
             else:
                 self.selection_dragging = False
+        elif self.tool == "select_lasso":
+            if len(self.selection_points) > 2:
+                xs = [p[0] for p in self.selection_points]
+                ys = [p[1] for p in self.selection_points]
+                self.selection = (min(xs), min(ys),
+                                  max(xs) - min(xs), max(ys) - min(ys))
+                self.selection_type = "lasso"
 
         self.queue_draw()
 
@@ -550,7 +675,13 @@ class DrawingArea(Gtk.DrawingArea):
         x /= self.zoom_level
         y /= self.zoom_level
 
-        if self.tool in ["brush", "eraser", "fill", "text", "spray", "eyedropper", "select", "crop", "gradient"]:
+        if self.tool in ["brush", "eraser", "fill", "text", "spray", "eyedropper",
+                         "select", "select_ellipse", "select_lasso", "select_color",
+                         "crop", "gradient"]:
+            return
+
+        if self.tool == "bezier" and n_press == 2:
+            self.finish_bezier_path()
             return
 
         if self.tool == "polygon" and n_press == 2:
@@ -578,7 +709,15 @@ class DrawingArea(Gtk.DrawingArea):
         current_x, current_y = self.snap(current_x, current_y)
 
         if self.tool == "brush":
-            self.draw_line_segment(self.last_x, self.last_y, current_x, current_y)
+            if self.smooth_brush:
+                self.stroke_points.append((current_x, current_y))
+                if len(self.stroke_points) > 3:
+                    pts = self.stroke_points[-4:]
+                    self.draw_smooth_stroke(pts)
+                else:
+                    self.draw_line_segment(self.last_x, self.last_y, current_x, current_y)
+            else:
+                self.draw_line_segment(self.last_x, self.last_y, current_x, current_y)
             self.last_x = current_x
             self.last_y = current_y
         elif self.tool == "eraser":
@@ -587,7 +726,9 @@ class DrawingArea(Gtk.DrawingArea):
             self.last_y = current_y
         elif self.tool == "spray":
             self.spray_paint(current_x, current_y)
-        elif self.tool == "select" and self.selection_dragging and self.selection:
+        elif self.tool == "select_lasso":
+            self.selection_points.append((current_x, current_y))
+        elif self.tool in ["select", "select_ellipse"] and self.selection_dragging and self.selection:
             sx, sy, sw, sh = self.selection
             new_x = current_x - self.selection_offset_x
             new_y = current_y - self.selection_offset_y
@@ -1162,7 +1303,7 @@ class DrawingArea(Gtk.DrawingArea):
         ctx.set_operator(cairo.OPERATOR_SOURCE)
         ctx.paint()
         insert_idx = self.active_layer_index + 1
-        self.layers.insert(insert_idx, {"name": name, "surface": new_surface, "visible": True})
+        self.layers.insert(insert_idx, {"name": name, "surface": new_surface, "visible": True, "opacity": 1.0, "blend_mode": "normal"})
         self.active_layer_index = insert_idx
         self._sync_active_layer()
 
@@ -1231,7 +1372,8 @@ class DrawingArea(Gtk.DrawingArea):
             ctx = cairo.Context(new_surf)
             ctx.set_source_surface(layer["surface"], -sx, -sy)
             ctx.paint()
-            new_layers.append({"name": layer["name"], "surface": new_surf, "visible": layer["visible"]})
+            new_layers.append({"name": layer["name"], "surface": new_surf, "visible": layer["visible"],
+                               "opacity": layer.get("opacity", 1.0), "blend_mode": layer.get("blend_mode", "normal")})
         self.layers = new_layers
         self.width = sw
         self.height = sh
@@ -1244,6 +1386,549 @@ class DrawingArea(Gtk.DrawingArea):
     def cancel_crop(self):
         """Cancel the pending crop"""
         self.crop_rect = None
+        self.queue_draw()
+
+    # ─── Selection enhancements ───
+
+    def select_none(self):
+        """Deselect all"""
+        self.selection = None
+        self.selection_surface = None
+        self.selection_points = []
+        self.queue_draw()
+
+    def invert_selection(self):
+        """Invert selection (simplified: swap selected/unselected area)"""
+        if not self.selection:
+            self.selection = (0, 0, self.width, self.height)
+        else:
+            self.selection = None
+        self.queue_draw()
+
+    def select_by_color(self, x, y):
+        """Magic wand / flood select by color with tolerance"""
+        if x < 0 or x >= self.width or y < 0 or y >= self.height:
+            return
+        self.surface.flush()
+        buf = self.surface.get_data()
+        stride = self.surface.get_stride()
+        offset = y * stride + x * 4
+        target_b = buf[offset]
+        target_g = buf[offset + 1]
+        target_r = buf[offset + 2]
+        target_a = buf[offset + 3]
+
+        tolerance = self.color_select_tolerance
+        min_x, min_y = self.width, self.height
+        max_x, max_y = 0, 0
+        visited = set()
+        stack = [(x, y)]
+
+        while stack:
+            cx, cy = stack.pop()
+            if (cx, cy) in visited:
+                continue
+            if cx < 0 or cx >= self.width or cy < 0 or cy >= self.height:
+                continue
+            off = cy * stride + cx * 4
+            if (abs(buf[off + 2] - target_r) <= tolerance and
+                    abs(buf[off + 1] - target_g) <= tolerance and
+                    abs(buf[off] - target_b) <= tolerance and
+                    abs(buf[off + 3] - target_a) <= tolerance):
+                visited.add((cx, cy))
+                min_x = min(min_x, cx)
+                min_y = min(min_y, cy)
+                max_x = max(max_x, cx)
+                max_y = max(max_y, cy)
+                stack.extend([(cx + 1, cy), (cx - 1, cy),
+                              (cx, cy + 1), (cx, cy - 1)])
+
+        if visited:
+            self.selection = (min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+            self.selection_type = "color"
+            self.queue_draw()
+
+    # ─── Smooth brush ───
+
+    def draw_smooth_stroke(self, points):
+        """Draw smooth interpolated stroke through points"""
+        if len(points) < 2:
+            return
+        r, g, b, a = self.fg_color
+        self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
+        self.ctx.set_line_width(self.brush_size)
+        self.ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+        self.ctx.set_line_join(cairo.LINE_JOIN_ROUND)
+
+        if len(points) == 2:
+            self.ctx.move_to(*points[0])
+            self.ctx.line_to(*points[1])
+        else:
+            self.ctx.move_to(*points[0])
+            for i in range(1, len(points) - 1):
+                xc = (points[i][0] + points[i + 1][0]) / 2
+                yc = (points[i][1] + points[i + 1][1]) / 2
+                self.ctx.curve_to(points[i][0], points[i][1],
+                                  points[i][0], points[i][1], xc, yc)
+            self.ctx.line_to(*points[-1])
+        self.ctx.stroke()
+        self.queue_draw()
+
+    # ─── Bezier path tool ───
+
+    def finish_bezier_path(self):
+        """Draw the bezier path through collected points"""
+        if len(self.bezier_points) < 2:
+            self.bezier_points = []
+            return
+        self.save_state_for_undo()
+        r, g, b, a = self.fg_color
+        self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
+        self.ctx.set_line_width(self.stroke_width)
+        self.ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+
+        pts = self.bezier_points
+        self.ctx.move_to(*pts[0])
+        if len(pts) == 2:
+            self.ctx.line_to(*pts[1])
+        else:
+            for i in range(1, len(pts) - 1):
+                xc = (pts[i][0] + pts[i + 1][0]) / 2
+                yc = (pts[i][1] + pts[i + 1][1]) / 2
+                self.ctx.curve_to(pts[i][0], pts[i][1],
+                                  pts[i][0], pts[i][1], xc, yc)
+            self.ctx.line_to(*pts[-1])
+        self.ctx.stroke()
+        self.bezier_points = []
+        self.queue_draw()
+
+    # ─── Filters ───
+
+    def _get_surface_copy(self, surface):
+        """Get a mutable copy of surface pixel data"""
+        surface.flush()
+        return bytearray(surface.get_data()), surface.get_stride()
+
+    def apply_blur(self, radius=3):
+        """Apply box blur (gaussian approximation)"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+        src = bytes(data)
+
+        # Horizontal pass
+        tmp = bytearray(len(src))
+        for y in range(h):
+            for x in range(w):
+                sums = [0, 0, 0, 0]
+                count = 0
+                for dx in range(-radius, radius + 1):
+                    nx = max(0, min(w - 1, x + dx))
+                    off = y * stride + nx * 4
+                    for c in range(4):
+                        sums[c] += src[off + c]
+                    count += 1
+                off = y * stride + x * 4
+                for c in range(4):
+                    tmp[off + c] = sums[c] // count
+
+        # Vertical pass
+        for y in range(h):
+            for x in range(w):
+                sums = [0, 0, 0, 0]
+                count = 0
+                for dy in range(-radius, radius + 1):
+                    ny = max(0, min(h - 1, y + dy))
+                    off = ny * stride + x * 4
+                    for c in range(4):
+                        sums[c] += tmp[off + c]
+                    count += 1
+                off = y * stride + x * 4
+                for c in range(4):
+                    data[off + c] = sums[c] // count
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def apply_sharpen(self, amount=1.0):
+        """Sharpen using unsharp mask"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+        src = bytes(data)
+
+        # Simple 3x3 sharpen kernel
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                off = y * stride + x * 4
+                for c in range(3):
+                    center = src[off + c] * (1 + 4 * amount)
+                    neighbors = (src[(y - 1) * stride + x * 4 + c] +
+                                 src[(y + 1) * stride + x * 4 + c] +
+                                 src[y * stride + (x - 1) * 4 + c] +
+                                 src[y * stride + (x + 1) * 4 + c])
+                    val = int(center - neighbors * amount)
+                    data[off + c] = max(0, min(255, val))
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def apply_emboss(self):
+        """Apply emboss filter"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+        src = bytes(data)
+
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                off = y * stride + x * 4
+                for c in range(3):
+                    val = (128 +
+                           src[(y - 1) * stride + (x - 1) * 4 + c] * -2 +
+                           src[(y - 1) * stride + x * 4 + c] * -1 +
+                           src[y * stride + (x - 1) * 4 + c] * -1 +
+                           src[y * stride + (x + 1) * 4 + c] +
+                           src[(y + 1) * stride + x * 4 + c] +
+                           src[(y + 1) * stride + (x + 1) * 4 + c] * 2)
+                    data[off + c] = max(0, min(255, val))
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def apply_edge_detect(self):
+        """Apply Sobel edge detection"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+        src = bytes(data)
+
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                off = y * stride + x * 4
+                for c in range(3):
+                    gx = (-src[(y - 1) * stride + (x - 1) * 4 + c] +
+                           src[(y - 1) * stride + (x + 1) * 4 + c] +
+                          -2 * src[y * stride + (x - 1) * 4 + c] +
+                           2 * src[y * stride + (x + 1) * 4 + c] +
+                          -src[(y + 1) * stride + (x - 1) * 4 + c] +
+                           src[(y + 1) * stride + (x + 1) * 4 + c])
+                    gy = (-src[(y - 1) * stride + (x - 1) * 4 + c] +
+                          -2 * src[(y - 1) * stride + x * 4 + c] +
+                          -src[(y - 1) * stride + (x + 1) * 4 + c] +
+                           src[(y + 1) * stride + (x - 1) * 4 + c] +
+                           2 * src[(y + 1) * stride + x * 4 + c] +
+                           src[(y + 1) * stride + (x + 1) * 4 + c])
+                    val = min(255, int(math.sqrt(gx * gx + gy * gy)))
+                    data[off + c] = val
+                data[off + 3] = src[off + 3]
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def apply_pixelate(self, block_size=8):
+        """Apply pixelate filter"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+        src = bytes(data)
+
+        for by in range(0, h, block_size):
+            for bx in range(0, w, block_size):
+                sums = [0, 0, 0, 0]
+                count = 0
+                for dy in range(min(block_size, h - by)):
+                    for dx in range(min(block_size, w - bx)):
+                        off = (by + dy) * stride + (bx + dx) * 4
+                        for c in range(4):
+                            sums[c] += src[off + c]
+                        count += 1
+                avg = [s // max(1, count) for s in sums]
+                for dy in range(min(block_size, h - by)):
+                    for dx in range(min(block_size, w - bx)):
+                        off = (by + dy) * stride + (bx + dx) * 4
+                        for c in range(4):
+                            data[off + c] = avg[c]
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def apply_noise(self, amount=30):
+        """Add random noise"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                if data[off + 3] > 0:
+                    for c in range(3):
+                        noise = random.randint(-amount, amount)
+                        data[off + c] = max(0, min(255, data[off + c] + noise))
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    # ─── Image adjustments ───
+
+    def adjust_brightness_contrast(self, brightness=0, contrast=0):
+        """Adjust brightness (-100..100) and contrast (-100..100)"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+
+        factor = (259 * (contrast + 255)) / (255 * (259 - contrast))
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                a = data[off + 3]
+                if a == 0:
+                    continue
+                for c in range(3):
+                    # Unpremultiply
+                    val = min(255, data[off + c] * 255 // a) if a > 0 else 0
+                    val = int(factor * (val - 128) + 128 + brightness)
+                    val = max(0, min(255, val))
+                    data[off + c] = val * a // 255
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def adjust_hue_saturation(self, hue_shift=0, saturation=0):
+        """Adjust hue (degrees) and saturation (-100..100)"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+        hue_shift_norm = hue_shift / 360.0
+        sat_factor = 1.0 + saturation / 100.0
+
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                a = data[off + 3]
+                if a == 0:
+                    continue
+                b_val = min(255, data[off] * 255 // a) if a > 0 else 0
+                g_val = min(255, data[off + 1] * 255 // a) if a > 0 else 0
+                r_val = min(255, data[off + 2] * 255 // a) if a > 0 else 0
+                h_v, s_v, v_v = colorsys.rgb_to_hsv(r_val / 255.0, g_val / 255.0, b_val / 255.0)
+                h_v = (h_v + hue_shift_norm) % 1.0
+                s_v = max(0.0, min(1.0, s_v * sat_factor))
+                r_n, g_n, b_n = colorsys.hsv_to_rgb(h_v, s_v, v_v)
+                data[off + 2] = int(r_n * 255) * a // 255
+                data[off + 1] = int(g_n * 255) * a // 255
+                data[off] = int(b_n * 255) * a // 255
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def apply_curves(self, lut):
+        """Apply a 256-entry lookup table to RGB channels"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                a = data[off + 3]
+                if a == 0:
+                    continue
+                for c in range(3):
+                    val = min(255, data[off + c] * 255 // a) if a > 0 else 0
+                    val = lut[val]
+                    data[off + c] = val * a // 255
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def convert_grayscale(self):
+        """Convert to grayscale"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                a = data[off + 3]
+                if a == 0:
+                    continue
+                b_v = data[off]
+                g_v = data[off + 1]
+                r_v = data[off + 2]
+                gray = int(0.299 * r_v + 0.587 * g_v + 0.114 * b_v)
+                data[off] = gray
+                data[off + 1] = gray
+                data[off + 2] = gray
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def invert_colors(self):
+        """Invert all colors"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                a = data[off + 3]
+                if a == 0:
+                    continue
+                data[off] = a - data[off]
+                data[off + 1] = a - data[off + 1]
+                data[off + 2] = a - data[off + 2]
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    def auto_levels(self):
+        """Auto-adjust levels by stretching histogram"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        stride = self.surface.get_stride()
+        data = self.surface.get_data()
+
+        min_v = 255
+        max_v = 0
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                if data[off + 3] == 0:
+                    continue
+                for c in range(3):
+                    v = data[off + c]
+                    min_v = min(min_v, v)
+                    max_v = max(max_v, v)
+
+        if max_v <= min_v:
+            return
+        scale = 255.0 / (max_v - min_v)
+        for y in range(h):
+            for x in range(w):
+                off = y * stride + x * 4
+                if data[off + 3] == 0:
+                    continue
+                for c in range(3):
+                    data[off + c] = max(0, min(255, int((data[off + c] - min_v) * scale)))
+
+        self.surface.mark_dirty()
+        self.queue_draw()
+
+    # ─── Transform methods ───
+
+    def scale_canvas(self, new_w, new_h):
+        """Scale entire canvas to new dimensions"""
+        self.save_state_for_undo()
+        new_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, new_w, new_h)
+        ctx = cairo.Context(new_surface)
+        self._apply_antialiasing(ctx)
+        ctx.scale(new_w / self.width, new_h / self.height)
+        ctx.set_source_surface(self.surface, 0, 0)
+        ctx.paint()
+        self.width = new_w
+        self.height = new_h
+        self.surface = new_surface
+        self.ctx = cairo.Context(self.surface)
+        self._apply_antialiasing(self.ctx)
+        # Update layers
+        new_layers = []
+        for layer in self.layers:
+            ns = cairo.ImageSurface(cairo.FORMAT_ARGB32, new_w, new_h)
+            c = cairo.Context(ns)
+            c.scale(new_w / max(1, layer["surface"].get_width()),
+                    new_h / max(1, layer["surface"].get_height()))
+            c.set_source_surface(layer["surface"], 0, 0)
+            c.paint()
+            new_layers.append({"name": layer["name"], "surface": ns,
+                               "visible": layer["visible"],
+                               "opacity": layer.get("opacity", 1.0),
+                               "blend_mode": layer.get("blend_mode", "normal")})
+        self.layers = new_layers
+        self._sync_active_layer()
+        self.set_size_request(self.width, self.height)
+        self.undo_manager.save_state(self.surface)
+        self.queue_draw()
+
+    def shear_canvas(self, shear_x=0.0, shear_y=0.0):
+        """Shear canvas by factors"""
+        self.save_state_for_undo()
+        new_w = int(self.width + abs(shear_x) * self.height)
+        new_h = int(self.height + abs(shear_y) * self.width)
+        new_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, new_w, new_h)
+        ctx = cairo.Context(new_surface)
+        self._apply_antialiasing(ctx)
+        matrix = cairo.Matrix(1, shear_y, shear_x, 1,
+                              max(0, -shear_x * self.height),
+                              max(0, -shear_y * self.width))
+        ctx.set_matrix(matrix)
+        ctx.set_source_surface(self.surface, 0, 0)
+        ctx.paint()
+        self.width = new_w
+        self.height = new_h
+        self.surface = new_surface
+        self.ctx = cairo.Context(self.surface)
+        self._apply_antialiasing(self.ctx)
+        self.layers[self.active_layer_index]["surface"] = self.surface
+        self.set_size_request(self.width, self.height)
+        self.undo_manager.save_state(self.surface)
+        self.queue_draw()
+
+    def perspective_transform(self, top_squeeze=0.0, bottom_squeeze=0.0):
+        """Simple perspective by scaling rows"""
+        self.save_state_for_undo()
+        self.surface.flush()
+        w, h = self.width, self.height
+        src_data = bytes(self.surface.get_data())
+        src_stride = self.surface.get_stride()
+        new_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+        dst_data = new_surface.get_data()
+        dst_stride = new_surface.get_stride()
+
+        for y in range(h):
+            t = y / max(1, h - 1)
+            squeeze = top_squeeze * (1 - t) + bottom_squeeze * t
+            row_w = max(1, w - int(abs(squeeze) * w))
+            offset_x = (w - row_w) // 2
+            for x in range(w):
+                src_x = int((x - offset_x) * w / max(1, row_w))
+                src_x = max(0, min(w - 1, src_x))
+                s_off = y * src_stride + src_x * 4
+                d_off = y * dst_stride + x * 4
+                for c in range(4):
+                    dst_data[d_off + c] = src_data[s_off + c]
+
+        new_surface.mark_dirty()
+        self.ctx.set_operator(cairo.OPERATOR_SOURCE)
+        self.ctx.set_source_surface(new_surface, 0, 0)
+        self.ctx.paint()
+        self.ctx.set_operator(cairo.OPERATOR_OVER)
         self.queue_draw()
 
     # ─── Gradient tool ───
@@ -1635,6 +2320,565 @@ class JpegQualityDialog(Adw.MessageDialog):
         return int(self.quality_scale.get_value())
 
 
+class AdjustmentDialog(Adw.MessageDialog):
+    """Generic dialog for image adjustments with sliders"""
+
+    def __init__(self, parent, title, sliders):
+        super().__init__(transient_for=parent)
+        self.set_heading(title)
+        self.add_response("cancel", _("Cancel"))
+        self.add_response("ok", _("Apply"))
+        self.set_default_response("ok")
+        self.set_close_response("cancel")
+
+        self.sliders = {}
+        grid = Gtk.Grid(row_spacing=8, column_spacing=12)
+        for i, (name, label, min_v, max_v, default) in enumerate(sliders):
+            grid.attach(Gtk.Label(label=label), 0, i, 1, 1)
+            scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, min_v, max_v, 1)
+            scale.set_value(default)
+            scale.set_size_request(250, -1)
+            scale.set_hexpand(True)
+            grid.attach(scale, 1, i, 1, 1)
+            self.sliders[name] = scale
+
+        self.set_extra_child(grid)
+
+    def get_value(self, name):
+        return self.sliders[name].get_value()
+
+
+class ColorCurvesDialog(Adw.MessageDialog):
+    """Simple color curves with control points"""
+
+    def __init__(self, parent):
+        super().__init__(transient_for=parent)
+        self.set_heading(_("Color Curves"))
+        self.add_response("cancel", _("Cancel"))
+        self.add_response("ok", _("Apply"))
+        self.set_default_response("ok")
+        self.set_close_response("cancel")
+
+        self.points = [(0, 0), (64, 64), (128, 128), (192, 192), (255, 255)]
+        self.selected_point = -1
+
+        self.curve_area = Gtk.DrawingArea()
+        self.curve_area.set_size_request(256, 256)
+        self.curve_area.set_draw_func(self._draw_curve)
+
+        click = Gtk.GestureClick()
+        click.connect("pressed", self._on_click)
+        self.curve_area.add_controller(click)
+
+        drag = Gtk.GestureDrag()
+        drag.connect("drag-begin", self._on_drag_begin)
+        drag.connect("drag-update", self._on_drag_update)
+        self.curve_area.add_controller(drag)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(Gtk.Label(label=_("Click and drag points to adjust")))
+        box.append(self.curve_area)
+        self.set_extra_child(box)
+
+    def _draw_curve(self, area, ctx, w, h, data=None):
+        # Background
+        ctx.set_source_rgb(0.15, 0.15, 0.15)
+        ctx.paint()
+        # Grid
+        ctx.set_source_rgba(0.3, 0.3, 0.3, 0.5)
+        ctx.set_line_width(0.5)
+        for i in range(1, 4):
+            v = i * w / 4
+            ctx.move_to(v, 0)
+            ctx.line_to(v, h)
+            ctx.move_to(0, v)
+            ctx.line_to(w, v)
+        ctx.stroke()
+        # Identity line
+        ctx.set_source_rgba(0.4, 0.4, 0.4, 0.5)
+        ctx.move_to(0, h)
+        ctx.line_to(w, 0)
+        ctx.stroke()
+        # Curve
+        lut = self.generate_lut()
+        ctx.set_source_rgb(1, 1, 1)
+        ctx.set_line_width(1.5)
+        for i in range(256):
+            x = i * w / 255
+            y = h - lut[i] * h / 255
+            if i == 0:
+                ctx.move_to(x, y)
+            else:
+                ctx.line_to(x, y)
+        ctx.stroke()
+        # Control points
+        for px, py in self.points:
+            x = px * w / 255
+            y = h - py * h / 255
+            ctx.set_source_rgb(1, 0.5, 0)
+            ctx.arc(x, y, 5, 0, 2 * math.pi)
+            ctx.fill()
+
+    def _on_click(self, gesture, n_press, x, y):
+        w = self.curve_area.get_width()
+        h = self.curve_area.get_height()
+        px = int(x * 255 / max(1, w))
+        py = int((h - y) * 255 / max(1, h))
+        px = max(0, min(255, px))
+        py = max(0, min(255, py))
+        # Find nearest point
+        for i, (ppx, ppy) in enumerate(self.points):
+            if abs(ppx - px) < 15 and abs(ppy - py) < 15:
+                self.selected_point = i
+                return
+        # Add new point
+        self.points.append((px, py))
+        self.points.sort(key=lambda p: p[0])
+        self.curve_area.queue_draw()
+
+    def _on_drag_begin(self, gesture, x, y):
+        w = self.curve_area.get_width()
+        h = self.curve_area.get_height()
+        px = int(x * 255 / max(1, w))
+        py = int((h - y) * 255 / max(1, h))
+        for i, (ppx, ppy) in enumerate(self.points):
+            if abs(ppx - px) < 15 and abs(ppy - py) < 15:
+                self.selected_point = i
+                return
+        self.selected_point = -1
+
+    def _on_drag_update(self, gesture, ox, oy):
+        if self.selected_point < 0:
+            return
+        _, sx, sy = gesture.get_start_point()
+        w = self.curve_area.get_width()
+        h = self.curve_area.get_height()
+        px = int((sx + ox) * 255 / max(1, w))
+        py = int((h - sy - oy) * 255 / max(1, h))
+        px = max(0, min(255, px))
+        py = max(0, min(255, py))
+        i = self.selected_point
+        if i == 0:
+            px = 0
+        elif i == len(self.points) - 1:
+            px = 255
+        self.points[i] = (px, py)
+        self.curve_area.queue_draw()
+
+    def generate_lut(self):
+        """Generate 256-entry lookup table from control points"""
+        lut = [0] * 256
+        pts = sorted(self.points, key=lambda p: p[0])
+        for i in range(256):
+            # Find surrounding points
+            p1 = pts[0]
+            p2 = pts[-1]
+            for j in range(len(pts) - 1):
+                if pts[j][0] <= i <= pts[j + 1][0]:
+                    p1 = pts[j]
+                    p2 = pts[j + 1]
+                    break
+            if p2[0] == p1[0]:
+                lut[i] = p1[1]
+            else:
+                t = (i - p1[0]) / (p2[0] - p1[0])
+                lut[i] = max(0, min(255, int(p1[1] + t * (p2[1] - p1[1]))))
+        return lut
+
+
+class ScaleDialog(Adw.MessageDialog):
+    """Dialog for scaling canvas/selection"""
+
+    def __init__(self, parent, current_width, current_height):
+        super().__init__(transient_for=parent)
+        self.set_heading(_("Scale"))
+        self.add_response("cancel", _("Cancel"))
+        self.add_response("ok", _("Scale"))
+        self.set_default_response("ok")
+        self.set_close_response("cancel")
+
+        self._aspect_ratio = current_width / max(1, current_height)
+        self._updating = False
+
+        grid = Gtk.Grid(row_spacing=8, column_spacing=12)
+        grid.attach(Gtk.Label(label=_("Width:")), 0, 0, 1, 1)
+        self.width_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
+        self.width_spin.set_value(current_width)
+        grid.attach(self.width_spin, 1, 0, 1, 1)
+
+        grid.attach(Gtk.Label(label=_("Height:")), 0, 1, 1, 1)
+        self.height_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
+        self.height_spin.set_value(current_height)
+        grid.attach(self.height_spin, 1, 1, 1, 1)
+
+        self.lock_check = Gtk.CheckButton(label=_("Lock aspect ratio"))
+        self.lock_check.set_active(True)
+        grid.attach(self.lock_check, 0, 2, 2, 1)
+
+        self.width_spin.connect("value-changed", self._on_width_changed)
+        self.height_spin.connect("value-changed", self._on_height_changed)
+        self.set_extra_child(grid)
+
+    def _on_width_changed(self, spin):
+        if self._updating or not self.lock_check.get_active():
+            return
+        self._updating = True
+        self.height_spin.set_value(max(1, int(spin.get_value() / self._aspect_ratio)))
+        self._updating = False
+
+    def _on_height_changed(self, spin):
+        if self._updating or not self.lock_check.get_active():
+            return
+        self._updating = True
+        self.width_spin.set_value(max(1, int(spin.get_value() * self._aspect_ratio)))
+        self._updating = False
+
+    def get_dimensions(self):
+        return int(self.width_spin.get_value()), int(self.height_spin.get_value())
+
+
+class ShearDialog(Adw.MessageDialog):
+    """Dialog for shear transform"""
+
+    def __init__(self, parent):
+        super().__init__(transient_for=parent)
+        self.set_heading(_("Shear"))
+        self.add_response("cancel", _("Cancel"))
+        self.add_response("ok", _("Apply"))
+        self.set_default_response("ok")
+        self.set_close_response("cancel")
+
+        grid = Gtk.Grid(row_spacing=8, column_spacing=12)
+        grid.attach(Gtk.Label(label=_("Horizontal:")), 0, 0, 1, 1)
+        self.shear_x = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -1.0, 1.0, 0.05)
+        self.shear_x.set_value(0)
+        self.shear_x.set_size_request(200, -1)
+        grid.attach(self.shear_x, 1, 0, 1, 1)
+
+        grid.attach(Gtk.Label(label=_("Vertical:")), 0, 1, 1, 1)
+        self.shear_y = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -1.0, 1.0, 0.05)
+        self.shear_y.set_value(0)
+        self.shear_y.set_size_request(200, -1)
+        grid.attach(self.shear_y, 1, 1, 1, 1)
+
+        self.set_extra_child(grid)
+
+
+class PerspectiveDialog(Adw.MessageDialog):
+    """Dialog for perspective transform"""
+
+    def __init__(self, parent):
+        super().__init__(transient_for=parent)
+        self.set_heading(_("Perspective"))
+        self.add_response("cancel", _("Cancel"))
+        self.add_response("ok", _("Apply"))
+        self.set_default_response("ok")
+        self.set_close_response("cancel")
+
+        grid = Gtk.Grid(row_spacing=8, column_spacing=12)
+        grid.attach(Gtk.Label(label=_("Top squeeze:")), 0, 0, 1, 1)
+        self.top_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -0.5, 0.5, 0.01)
+        self.top_scale.set_value(0)
+        self.top_scale.set_size_request(200, -1)
+        grid.attach(self.top_scale, 1, 0, 1, 1)
+
+        grid.attach(Gtk.Label(label=_("Bottom squeeze:")), 0, 1, 1, 1)
+        self.bottom_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -0.5, 0.5, 0.01)
+        self.bottom_scale.set_value(0)
+        self.bottom_scale.set_size_request(200, -1)
+        grid.attach(self.bottom_scale, 1, 1, 1, 1)
+
+        self.set_extra_child(grid)
+
+
+class HSVColorWidget(Gtk.Box):
+    """HSV color picker with sat/val square and hue slider"""
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.hue = 0.0
+        self.saturation = 1.0
+        self.value = 1.0
+        self.alpha = 1.0
+        self._cached_hue = -1
+        self._cached_surface = None
+        self.on_color_changed = None
+
+        # Saturation/Value square
+        self.sv_area = Gtk.DrawingArea()
+        self.sv_area.set_size_request(180, 120)
+        self.sv_area.set_draw_func(self._draw_sv)
+        sv_click = Gtk.GestureClick()
+        sv_click.connect("pressed", self._sv_click)
+        self.sv_area.add_controller(sv_click)
+        sv_drag = Gtk.GestureDrag()
+        sv_drag.connect("drag-begin", self._sv_drag_begin)
+        sv_drag.connect("drag-update", self._sv_drag_update)
+        self.sv_area.add_controller(sv_drag)
+        self.append(self.sv_area)
+
+        # Hue slider
+        hue_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        hue_box.append(Gtk.Label(label=_("H:")))
+        self.hue_area = Gtk.DrawingArea()
+        self.hue_area.set_size_request(150, 18)
+        self.hue_area.set_hexpand(True)
+        self.hue_area.set_draw_func(self._draw_hue)
+        hue_click = Gtk.GestureClick()
+        hue_click.connect("pressed", self._hue_click)
+        self.hue_area.add_controller(hue_click)
+        hue_drag = Gtk.GestureDrag()
+        hue_drag.connect("drag-begin", self._hue_drag_begin)
+        hue_drag.connect("drag-update", self._hue_drag_update)
+        self.hue_area.add_controller(hue_drag)
+        hue_box.append(self.hue_area)
+        self.append(hue_box)
+
+        # Alpha slider
+        alpha_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        alpha_box.append(Gtk.Label(label=_("A:")))
+        self.alpha_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.alpha_scale.set_value(100)
+        self.alpha_scale.set_hexpand(True)
+        self.alpha_scale.connect("value-changed", self._on_alpha_changed)
+        alpha_box.append(self.alpha_scale)
+        self.append(alpha_box)
+
+        # RGB entries
+        rgb_grid = Gtk.Grid(column_spacing=4, row_spacing=2)
+        self.r_spin = Gtk.SpinButton.new_with_range(0, 255, 1)
+        self.g_spin = Gtk.SpinButton.new_with_range(0, 255, 1)
+        self.b_spin = Gtk.SpinButton.new_with_range(0, 255, 1)
+        for i, (label, spin) in enumerate([(_("R:"), self.r_spin), (_("G:"), self.g_spin), (_("B:"), self.b_spin)]):
+            rgb_grid.attach(Gtk.Label(label=label), i * 2, 0, 1, 1)
+            spin.set_size_request(60, -1)
+            spin.connect("value-changed", self._on_rgb_changed)
+            rgb_grid.attach(spin, i * 2 + 1, 0, 1, 1)
+        self.append(rgb_grid)
+
+        # Hex entry
+        hex_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        hex_box.append(Gtk.Label(label=_("Hex:")))
+        self.hex_entry = Gtk.Entry()
+        self.hex_entry.set_max_length(7)
+        self.hex_entry.set_text("#000000")
+        self.hex_entry.set_hexpand(True)
+        self.hex_entry.connect("activate", self._on_hex_activate)
+        hex_box.append(self.hex_entry)
+        self.append(hex_box)
+
+        self._updating = False
+        self._sync_rgb_from_hsv()
+
+    def _rebuild_sv_cache(self, w, h):
+        self._cached_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+        buf = self._cached_surface.get_data()
+        stride = self._cached_surface.get_stride()
+        for y in range(h):
+            for x in range(w):
+                s = x / max(1, w - 1)
+                v = 1.0 - y / max(1, h - 1)
+                r, g, b = colorsys.hsv_to_rgb(self.hue, s, v)
+                off = y * stride + x * 4
+                buf[off] = int(b * 255)
+                buf[off + 1] = int(g * 255)
+                buf[off + 2] = int(r * 255)
+                buf[off + 3] = 255
+        self._cached_surface.mark_dirty()
+        self._cached_hue = self.hue
+
+    def _draw_sv(self, area, ctx, w, h, data=None):
+        if self._cached_hue != self.hue or self._cached_surface is None:
+            self._rebuild_sv_cache(w, h)
+        ctx.set_source_surface(self._cached_surface, 0, 0)
+        ctx.paint()
+        cx = self.saturation * (w - 1)
+        cy = (1.0 - self.value) * (h - 1)
+        ctx.set_line_width(1.5)
+        ctx.set_source_rgb(1 if self.value < 0.5 else 0,
+                           1 if self.value < 0.5 else 0,
+                           1 if self.value < 0.5 else 0)
+        ctx.arc(cx, cy, 5, 0, 2 * math.pi)
+        ctx.stroke()
+
+    def _draw_hue(self, area, ctx, w, h, data=None):
+        for x in range(w):
+            hu = x / max(1, w - 1)
+            r, g, b = colorsys.hsv_to_rgb(hu, 1, 1)
+            ctx.set_source_rgb(r, g, b)
+            ctx.rectangle(x, 0, 1, h)
+            ctx.fill()
+        mx = self.hue * (w - 1)
+        ctx.set_source_rgb(0, 0, 0)
+        ctx.set_line_width(2)
+        ctx.rectangle(mx - 1, 0, 3, h)
+        ctx.stroke()
+
+    def _pick_sv(self, x, y):
+        w = self.sv_area.get_width()
+        h = self.sv_area.get_height()
+        self.saturation = max(0, min(1, x / max(1, w - 1)))
+        self.value = max(0, min(1, 1.0 - y / max(1, h - 1)))
+        self._sync_rgb_from_hsv()
+        self.sv_area.queue_draw()
+
+    def _sv_click(self, gesture, n, x, y):
+        self._pick_sv(x, y)
+
+    def _sv_drag_begin(self, gesture, x, y):
+        self._pick_sv(x, y)
+
+    def _sv_drag_update(self, gesture, ox, oy):
+        _, sx, sy = gesture.get_start_point()
+        self._pick_sv(sx + ox, sy + oy)
+
+    def _pick_hue(self, x):
+        w = self.hue_area.get_width()
+        self.hue = max(0, min(1, x / max(1, w - 1)))
+        self._cached_hue = -1
+        self._sync_rgb_from_hsv()
+        self.sv_area.queue_draw()
+        self.hue_area.queue_draw()
+
+    def _hue_click(self, gesture, n, x, y):
+        self._pick_hue(x)
+
+    def _hue_drag_begin(self, gesture, x, y):
+        self._pick_hue(x)
+
+    def _hue_drag_update(self, gesture, ox, oy):
+        _, sx, sy = gesture.get_start_point()
+        self._pick_hue(sx + ox)
+
+    def _on_alpha_changed(self, scale):
+        self.alpha = scale.get_value() / 100.0
+        if self.on_color_changed and not self._updating:
+            self.on_color_changed(self.get_rgba())
+
+    def _sync_rgb_from_hsv(self):
+        self._updating = True
+        r, g, b = colorsys.hsv_to_rgb(self.hue, self.saturation, self.value)
+        self.r_spin.set_value(int(r * 255))
+        self.g_spin.set_value(int(g * 255))
+        self.b_spin.set_value(int(b * 255))
+        self.hex_entry.set_text("#{:02x}{:02x}{:02x}".format(
+            int(r * 255), int(g * 255), int(b * 255)))
+        self._updating = False
+        if self.on_color_changed:
+            self.on_color_changed(self.get_rgba())
+
+    def _on_rgb_changed(self, spin):
+        if self._updating:
+            return
+        r = self.r_spin.get_value() / 255.0
+        g = self.g_spin.get_value() / 255.0
+        b = self.b_spin.get_value() / 255.0
+        self.hue, self.saturation, self.value = colorsys.rgb_to_hsv(r, g, b)
+        self._cached_hue = -1
+        self._updating = True
+        self.hex_entry.set_text("#{:02x}{:02x}{:02x}".format(
+            int(r * 255), int(g * 255), int(b * 255)))
+        self._updating = False
+        self.sv_area.queue_draw()
+        self.hue_area.queue_draw()
+        if self.on_color_changed:
+            self.on_color_changed(self.get_rgba())
+
+    def _on_hex_activate(self, entry):
+        text = entry.get_text().strip().lstrip('#')
+        if len(text) == 6:
+            try:
+                r = int(text[0:2], 16)
+                g = int(text[2:4], 16)
+                b = int(text[4:6], 16)
+                self._updating = True
+                self.r_spin.set_value(r)
+                self.g_spin.set_value(g)
+                self.b_spin.set_value(b)
+                self._updating = False
+                self.hue, self.saturation, self.value = colorsys.rgb_to_hsv(
+                    r / 255.0, g / 255.0, b / 255.0)
+                self._cached_hue = -1
+                self.sv_area.queue_draw()
+                self.hue_area.queue_draw()
+                if self.on_color_changed:
+                    self.on_color_changed(self.get_rgba())
+            except ValueError:
+                pass
+
+    def get_rgba(self):
+        r, g, b = colorsys.hsv_to_rgb(self.hue, self.saturation, self.value)
+        return (r, g, b, self.alpha)
+
+    def set_rgba(self, rgba):
+        r, g, b = rgba[0], rgba[1], rgba[2]
+        self.alpha = rgba[3] if len(rgba) > 3 else 1.0
+        self.hue, self.saturation, self.value = colorsys.rgb_to_hsv(r, g, b)
+        self._cached_hue = -1
+        self._updating = True
+        self.r_spin.set_value(int(r * 255))
+        self.g_spin.set_value(int(g * 255))
+        self.b_spin.set_value(int(b * 255))
+        self.hex_entry.set_text("#{:02x}{:02x}{:02x}".format(
+            int(r * 255), int(g * 255), int(b * 255)))
+        self.alpha_scale.set_value(self.alpha * 100)
+        self._updating = False
+        self.sv_area.queue_draw()
+        self.hue_area.queue_draw()
+
+
+class RulerWidget(Gtk.DrawingArea):
+    """Ruler widget for top or left of canvas"""
+
+    def __init__(self, orientation="horizontal"):
+        super().__init__()
+        self.orientation = orientation
+        self.zoom = 1.0
+        self.scroll_offset = 0
+        if orientation == "horizontal":
+            self.set_size_request(-1, 20)
+        else:
+            self.set_size_request(20, -1)
+        self.set_draw_func(self._draw)
+
+    def _draw(self, area, ctx, w, h, data=None):
+        ctx.set_source_rgb(0.9, 0.9, 0.9)
+        ctx.paint()
+        ctx.set_source_rgb(0.3, 0.3, 0.3)
+        ctx.set_line_width(0.5)
+        ctx.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        ctx.set_font_size(8)
+
+        step = max(10, int(50 / self.zoom))
+        step = round(step / 10) * 10 or 10
+
+        if self.orientation == "horizontal":
+            for px in range(0, int(w / self.zoom) + step, step):
+                x = px * self.zoom - self.scroll_offset
+                if 0 <= x <= w:
+                    ctx.move_to(x, h - 5)
+                    ctx.line_to(x, h)
+                    ctx.stroke()
+                    ctx.move_to(x + 2, h - 7)
+                    ctx.show_text(str(px))
+        else:
+            for py in range(0, int(h / self.zoom) + step, step):
+                y = py * self.zoom - self.scroll_offset
+                if 0 <= y <= h:
+                    ctx.move_to(w - 5, y)
+                    ctx.line_to(w, y)
+                    ctx.stroke()
+                    ctx.save()
+                    ctx.move_to(2, y + 10)
+                    ctx.show_text(str(py))
+                    ctx.restore()
+
+    def update_zoom(self, zoom, offset=0):
+        self.zoom = zoom
+        self.scroll_offset = offset
+        self.queue_draw()
+
+
 class PreferencesDialog(Adw.PreferencesWindow):
     """Application preferences dialog"""
 
@@ -1780,17 +3024,18 @@ class PreferencesDialog(Adw.PreferencesWindow):
 
 
 class PaintBrushWindow(Adw.ApplicationWindow):
-    """Enhanced main window with advanced tools"""
+    """Professional main window with full feature set"""
 
     def __init__(self, app):
         super().__init__(application=app)
 
         self.settings = app.settings
         self.set_title(_("PaintBrush"))
-        self.set_default_size(1100, 750)
+        self.set_default_size(1280, 800)
 
         self.current_file = None
         self.auto_save_id = None
+        self._is_fullscreen = False
 
         # Create drawing area
         self.drawing_area = DrawingArea(self.settings)
@@ -1845,12 +3090,16 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             "tool_star": "star",
             "tool_polygon": "polygon",
             "tool_select": "select",
+            "tool_select_ellipse": "select_ellipse",
+            "tool_select_lasso": "select_lasso",
+            "tool_select_color": "select_color",
             "tool_eyedropper": "eyedropper",
             "tool_spray": "spray",
             "tool_arrow": "arrow",
             "tool_rounded_rectangle": "rounded_rectangle",
             "tool_crop": "crop",
             "tool_gradient": "gradient",
+            "tool_bezier": "bezier",
         }
         for action_name, tool_id in tool_keys.items():
             action = Gio.SimpleAction.new(action_name, None)
@@ -2049,7 +3298,7 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         shortcuts.present()
 
     def setup_ui(self):
-        """Create the user interface"""
+        """Create the professional user interface"""
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.set_content(main_box)
 
@@ -2057,112 +3306,179 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         main_box.append(header)
 
-        # Menu button
-        menu_button = Gtk.MenuButton()
-        menu_button.set_icon_name("open-menu-symbolic")
-        menu = Gio.Menu()
-
-        file_section = Gio.Menu()
-        file_section.append(_("New"), "win.new")
-        file_section.append(_("Open"), "win.open")
-        file_section.append(_("Save"), "win.save")
-        file_section.append(_("Save As"), "win.save_as")
-        file_section.append(_("Export…"), "win.export")
-        menu.append_section(None, file_section)
-
-        # Recent files submenu
-        self.recent_menu = Gio.Menu()
-        recent_files = self.settings.get("recent_files", [])
-        for i, fpath in enumerate(recent_files[:10]):
-            self.recent_menu.append(os.path.basename(fpath), f"win.open_recent_{i}")
-        if recent_files:
-            menu.append_submenu(_("Recent Files"), self.recent_menu)
-
-        edit_section = Gio.Menu()
-        edit_section.append(_("Undo"), "win.undo")
-        edit_section.append(_("Redo"), "win.redo")
-        edit_section.append(_("Select All"), "win.select_all")
-        edit_section.append(_("Copy"), "win.copy")
-        edit_section.append(_("Paste"), "win.paste")
-        edit_section.append(_("Cut"), "win.cut")
-        menu.append_section(None, edit_section)
-
-        zoom_section = Gio.Menu()
-        zoom_section.append(_("Zoom In"), "win.zoom_in")
-        zoom_section.append(_("Zoom Out"), "win.zoom_out")
-        zoom_section.append(_("Zoom Reset"), "win.zoom_reset")
-        zoom_section.append(_("Toggle Grid"), "win.toggle_grid")
-        menu.append_section(None, zoom_section)
-
-        canvas_section = Gio.Menu()
-        canvas_section.append(_("Clear Canvas"), "win.clear")
-        canvas_section.append(_("Resize Canvas…"), "win.resize_canvas")
-        canvas_section.append(_("Crop to Selection"), "win.crop_to_selection")
-        menu.append_section(None, canvas_section)
-
-        transform_section = Gio.Menu()
-        transform_section.append(_("Rotate 90°"), "win.rotate_90")
-        transform_section.append(_("Rotate 180°"), "win.rotate_180")
-        transform_section.append(_("Rotate 270°"), "win.rotate_270")
-        transform_section.append(_("Flip Horizontal"), "win.flip_h")
-        transform_section.append(_("Flip Vertical"), "win.flip_v")
-        menu.append_section(None, transform_section)
-
+        # App menu button (hamburger)
+        app_menu_btn = Gtk.MenuButton()
+        app_menu_btn.set_icon_name("open-menu-symbolic")
+        app_menu = Gio.Menu()
         app_section = Gio.Menu()
         app_section.append(_("Preferences"), "win.preferences")
         app_section.append(_("Keyboard Shortcuts"), "win.show-shortcuts")
         app_section.append(_("About PaintBrush"), "app.about")
         app_section.append(_("Quit"), "app.quit")
-        menu.append_section(None, app_section)
+        app_menu.append_section(None, app_section)
+        app_menu_btn.set_menu_model(app_menu)
+        header.pack_end(app_menu_btn)
 
-        menu_button.set_menu_model(menu)
-        header.pack_end(menu_button)
+        # ─── Menubar ───
+        menubar_model = Gio.Menu()
 
-        # Content with sidebar
-        content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        main_box.append(content_box)
+        # File menu
+        file_menu = Gio.Menu()
+        file_ops = Gio.Menu()
+        file_ops.append(_("New"), "win.new")
+        file_ops.append(_("Open"), "win.open")
+        file_ops.append(_("Save"), "win.save")
+        file_ops.append(_("Save As"), "win.save_as")
+        file_ops.append(_("Export…"), "win.export")
+        file_menu.append_section(None, file_ops)
+        self.recent_menu = Gio.Menu()
+        recent_files = self.settings.get("recent_files", [])
+        for i, fpath in enumerate(recent_files[:10]):
+            self.recent_menu.append(os.path.basename(fpath), f"win.open_recent_{i}")
+        if recent_files:
+            file_menu.append_submenu(_("Recent Files"), self.recent_menu)
+        menubar_model.append_submenu(_("File"), file_menu)
 
-        # Left sidebar — tools and colors
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        sidebar.set_margin_start(6)
-        sidebar.set_margin_top(6)
-        sidebar.set_margin_bottom(6)
-        sidebar.set_size_request(200, -1)
+        # Edit menu
+        edit_menu = Gio.Menu()
+        edit_ops = Gio.Menu()
+        edit_ops.append(_("Undo"), "win.undo")
+        edit_ops.append(_("Redo"), "win.redo")
+        edit_menu.append_section(None, edit_ops)
+        clipboard_ops = Gio.Menu()
+        clipboard_ops.append(_("Copy"), "win.copy")
+        clipboard_ops.append(_("Paste"), "win.paste")
+        clipboard_ops.append(_("Cut"), "win.cut")
+        edit_menu.append_section(None, clipboard_ops)
+        canvas_ops = Gio.Menu()
+        canvas_ops.append(_("Clear Canvas"), "win.clear")
+        canvas_ops.append(_("Resize Canvas…"), "win.resize_canvas")
+        edit_menu.append_section(None, canvas_ops)
+        menubar_model.append_submenu(_("Edit"), edit_menu)
 
-        # Scrolled sidebar content
-        sidebar_scroll = Gtk.ScrolledWindow()
-        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        sidebar_scroll.set_vexpand(True)
+        # Image menu
+        image_menu = Gio.Menu()
+        transform_ops = Gio.Menu()
+        transform_ops.append(_("Rotate 90°"), "win.rotate_90")
+        transform_ops.append(_("Rotate 180°"), "win.rotate_180")
+        transform_ops.append(_("Rotate 270°"), "win.rotate_270")
+        transform_ops.append(_("Flip Horizontal"), "win.flip_h")
+        transform_ops.append(_("Flip Vertical"), "win.flip_v")
+        image_menu.append_section(None, transform_ops)
+        scale_ops = Gio.Menu()
+        scale_ops.append(_("Scale…"), "win.scale_canvas")
+        scale_ops.append(_("Shear…"), "win.shear_canvas")
+        scale_ops.append(_("Perspective…"), "win.perspective_canvas")
+        scale_ops.append(_("Crop to Selection"), "win.crop_to_selection")
+        image_menu.append_section(None, scale_ops)
+        menubar_model.append_submenu(_("Image"), image_menu)
 
-        sidebar_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        sidebar_scroll.set_child(sidebar_inner)
-        sidebar.append(sidebar_scroll)
-        content_box.append(sidebar)
+        # Layer menu
+        layer_menu = Gio.Menu()
+        layer_ops = Gio.Menu()
+        layer_ops.append(_("Add Layer"), "win.add_layer")
+        layer_ops.append(_("Delete Layer"), "win.delete_layer")
+        layer_ops.append(_("Flatten Image"), "win.flatten_image")
+        layer_menu.append_section(None, layer_ops)
+        menubar_model.append_submenu(_("Layer"), layer_menu)
 
-        # Tools section
-        tools_label = Gtk.Label(label=_("Tools:"))
-        tools_label.add_css_class("heading")
-        tools_label.set_halign(Gtk.Align.START)
-        sidebar_inner.append(tools_label)
+        # Colors menu
+        colors_menu = Gio.Menu()
+        adjust_ops = Gio.Menu()
+        adjust_ops.append(_("Brightness/Contrast…"), "win.brightness_contrast")
+        adjust_ops.append(_("Hue/Saturation…"), "win.hue_saturation")
+        adjust_ops.append(_("Color Curves…"), "win.color_curves")
+        colors_menu.append_section(None, adjust_ops)
+        color_ops = Gio.Menu()
+        color_ops.append(_("Grayscale"), "win.grayscale")
+        color_ops.append(_("Invert Colors"), "win.invert_colors")
+        color_ops.append(_("Auto Levels"), "win.auto_levels")
+        colors_menu.append_section(None, color_ops)
+        menubar_model.append_submenu(_("Colors"), colors_menu)
 
+        # Filters menu
+        filters_menu = Gio.Menu()
+        filter_ops = Gio.Menu()
+        filter_ops.append(_("Blur…"), "win.filter_blur")
+        filter_ops.append(_("Sharpen…"), "win.filter_sharpen")
+        filter_ops.append(_("Emboss"), "win.filter_emboss")
+        filter_ops.append(_("Edge Detect"), "win.filter_edge_detect")
+        filter_ops.append(_("Pixelate…"), "win.filter_pixelate")
+        filter_ops.append(_("Noise…"), "win.filter_noise")
+        filters_menu.append_section(None, filter_ops)
+        menubar_model.append_submenu(_("Filters"), filters_menu)
+
+        # Select menu
+        select_menu = Gio.Menu()
+        select_ops = Gio.Menu()
+        select_ops.append(_("Select All"), "win.select_all")
+        select_ops.append(_("Select None"), "win.select_none")
+        select_ops.append(_("Invert Selection"), "win.invert_selection")
+        select_ops.append(_("Delete Selection"), "win.delete_selection")
+        select_menu.append_section(None, select_ops)
+        menubar_model.append_submenu(_("Select"), select_menu)
+
+        # View menu
+        view_menu = Gio.Menu()
+        view_ops = Gio.Menu()
+        view_ops.append(_("Zoom In"), "win.zoom_in")
+        view_ops.append(_("Zoom Out"), "win.zoom_out")
+        view_ops.append(_("Zoom Reset"), "win.zoom_reset")
+        view_ops.append(_("Fit to Window"), "win.fit_to_window")
+        view_menu.append_section(None, view_ops)
+        toggle_ops = Gio.Menu()
+        toggle_ops.append(_("Toggle Grid"), "win.toggle_grid")
+        toggle_ops.append(_("Toggle Rulers"), "win.toggle_rulers")
+        toggle_ops.append(_("Fullscreen"), "win.toggle_fullscreen")
+        view_menu.append_section(None, toggle_ops)
+        menubar_model.append_submenu(_("View"), view_menu)
+
+        menubar = Gtk.PopoverMenuBar()
+        menubar.set_menu_model(menubar_model)
+        main_box.append(menubar)
+
+        # ─── Workspace ───
+        workspace = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        workspace.set_vexpand(True)
+        main_box.append(workspace)
+
+        # ─── Left panel: Toolbox + tool options ───
+        left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        left_panel.set_margin_start(4)
+        left_panel.set_margin_top(4)
+        left_panel.set_margin_bottom(4)
+        left_panel.set_size_request(220, -1)
+
+        left_scroll = Gtk.ScrolledWindow()
+        left_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        left_scroll.set_vexpand(True)
+        left_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        left_scroll.set_child(left_inner)
+        left_panel.append(left_scroll)
+
+        # Tool buttons (vertical icon grid)
         self.tool_buttons = {}
         tools = [
             ("brush", _("Brush"), "edit-symbolic"),
             ("eraser", _("Eraser"), "edit-clear-symbolic"),
             ("line", _("Line"), "line-symbolic"),
             ("rectangle", _("Rectangle"), "view-grid-symbolic"),
-            ("rounded_rectangle", _("Rounded Rectangle"), "view-grid-symbolic"),
+            ("rounded_rectangle", _("Rounded Rect"), "view-grid-symbolic"),
             ("circle", _("Circle"), "media-record-symbolic"),
             ("polygon", _("Polygon"), "path-symbolic"),
             ("star", _("Star"), "starred-symbolic"),
             ("arrow", _("Arrow"), "go-next-symbolic"),
-            ("fill", _("Fill"), "paint-bucket-symbolic"),
-            ("text", _("Text"), "text-symbolic"),
-            ("select", _("Selection"), "selection-mode-symbolic"),
+            ("fill", _("Fill"), "color-profile-symbolic"),
+            ("text", _("Text"), "font-x-generic-symbolic"),
+            ("select", _("Rect Select"), "selection-mode-symbolic"),
+            ("select_ellipse", _("Ellipse Select"), "media-record-symbolic"),
+            ("select_lasso", _("Lasso Select"), "path-symbolic"),
+            ("select_color", _("Color Select"), "find-location-symbolic"),
             ("eyedropper", _("Eyedropper"), "color-select-symbolic"),
             ("spray", _("Spray"), "weather-fog-symbolic"),
             ("crop", _("Crop"), "edit-cut-symbolic"),
-            ("gradient", _("Gradient"), "color-profile-symbolic"),
+            ("gradient", _("Gradient"), "weather-clear-symbolic"),
+            ("bezier", _("Bezier Path"), "path-symbolic"),
         ]
 
         tool_flow = Gtk.FlowBox()
@@ -2177,76 +3493,73 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             tool_flow.insert(btn, -1)
             self.tool_buttons[tool_id] = btn
 
-        sidebar_inner.append(tool_flow)
+        left_inner.append(tool_flow)
         self.tool_buttons["brush"].set_active(True)
 
-        sidebar_inner.append(Gtk.Separator())
+        left_inner.append(Gtk.Separator())
+
+        # ─── Tool options ───
+        opts_label = Gtk.Label(label=_("Tool Options"))
+        opts_label.add_css_class("heading")
+        opts_label.set_halign(Gtk.Align.START)
+        left_inner.append(opts_label)
 
         # Brush size
         size_label = Gtk.Label(label=_("Size:"))
         size_label.set_halign(Gtk.Align.START)
-        sidebar_inner.append(size_label)
-
-        self.size_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 50, 1)
+        left_inner.append(size_label)
+        self.size_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
         self.size_scale.set_value(5)
         self.size_scale.connect("value-changed", self.on_size_changed)
-        sidebar_inner.append(self.size_scale)
+        left_inner.append(self.size_scale)
 
-        # Opacity slider
+        # Opacity
         opacity_label = Gtk.Label(label=_("Opacity:"))
         opacity_label.set_halign(Gtk.Align.START)
-        sidebar_inner.append(opacity_label)
-
+        left_inner.append(opacity_label)
         self.opacity_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         self.opacity_scale.set_value(100)
         self.opacity_scale.connect("value-changed", self.on_opacity_changed)
-        sidebar_inner.append(self.opacity_scale)
+        left_inner.append(self.opacity_scale)
 
-        # Stroke width for shape tools
+        # Stroke width
         stroke_label = Gtk.Label(label=_("Stroke Width:"))
         stroke_label.set_halign(Gtk.Align.START)
-        sidebar_inner.append(stroke_label)
-
+        left_inner.append(stroke_label)
         self.stroke_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 30, 1)
         self.stroke_scale.set_value(2)
         self.stroke_scale.connect("value-changed", self.on_stroke_width_changed)
-        sidebar_inner.append(self.stroke_scale)
+        left_inner.append(self.stroke_scale)
 
-        # Fill vs outline toggle
-        fill_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        fill_label = Gtk.Label(label=_("Shape:"))
-        fill_box.append(fill_label)
-
+        # Fill vs outline
+        fill_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self.outline_btn = Gtk.ToggleButton(label=_("Outline"))
         self.outline_btn.set_active(True)
         self.outline_btn.connect("toggled", self.on_fill_mode_changed, "outline")
         fill_box.append(self.outline_btn)
-
         self.filled_btn = Gtk.ToggleButton(label=_("Filled"))
         self.filled_btn.connect("toggled", self.on_fill_mode_changed, "filled")
         fill_box.append(self.filled_btn)
-        sidebar_inner.append(fill_box)
+        left_inner.append(fill_box)
 
-        # Brush shape selector
-        brush_shape_label = Gtk.Label(label=_("Brush Shape:"))
-        brush_shape_label.set_halign(Gtk.Align.START)
-        sidebar_inner.append(brush_shape_label)
-
-        brush_shape_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        # Brush shape
+        brush_shape_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         self.brush_shape_buttons = {}
-        for shape_id, shape_name in [("round", _("Round")), ("square", _("Square")), ("calligraphy", _("Calligraphy"))]:
+        for shape_id, shape_name in [("round", _("Round")), ("square", _("Square")), ("calligraphy", _("Cal"))]:
             btn = Gtk.ToggleButton(label=shape_name)
             btn.connect("toggled", self.on_brush_shape_changed, shape_id)
             brush_shape_box.append(btn)
             self.brush_shape_buttons[shape_id] = btn
         self.brush_shape_buttons["round"].set_active(True)
-        sidebar_inner.append(brush_shape_box)
+        left_inner.append(brush_shape_box)
 
-        # Gradient mode selector
-        gradient_label = Gtk.Label(label=_("Gradient:"))
-        gradient_label.set_halign(Gtk.Align.START)
-        sidebar_inner.append(gradient_label)
+        # Smooth brush toggle
+        self.smooth_check = Gtk.CheckButton(label=_("Smooth Brush"))
+        self.smooth_check.set_active(True)
+        self.smooth_check.connect("toggled", lambda b: setattr(self.drawing_area, 'smooth_brush', b.get_active()))
+        left_inner.append(self.smooth_check)
 
+        # Gradient mode
         gradient_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self.gradient_buttons = {}
         for gid, gname in [("linear", _("Linear")), ("radial", _("Radial"))]:
@@ -2255,103 +3568,175 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             gradient_box.append(btn)
             self.gradient_buttons[gid] = btn
         self.gradient_buttons["linear"].set_active(True)
-        sidebar_inner.append(gradient_box)
+        left_inner.append(gradient_box)
 
-        sidebar_inner.append(Gtk.Separator())
+        # Fill tolerance
+        tol_label = Gtk.Label(label=_("Tolerance:"))
+        tol_label.set_halign(Gtk.Align.START)
+        left_inner.append(tol_label)
+        self.tolerance_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 128, 1)
+        self.tolerance_scale.set_value(10)
+        self.tolerance_scale.connect("value-changed", self._on_tolerance_changed)
+        left_inner.append(self.tolerance_scale)
 
-        # Layers section
-        layers_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        layers_label = Gtk.Label(label=_("Layers:"))
-        layers_label.set_halign(Gtk.Align.START)
-        layers_label.set_hexpand(True)
-        layers_header.append(layers_label)
-
-        add_layer_btn = Gtk.Button()
-        add_layer_btn.set_icon_name("list-add-symbolic")
-        add_layer_btn.set_tooltip_text(_("Add Layer"))
-        add_layer_btn.connect("clicked", self.on_add_layer)
-        layers_header.append(add_layer_btn)
-
-        del_layer_btn = Gtk.Button()
-        del_layer_btn.set_icon_name("list-remove-symbolic")
-        del_layer_btn.set_tooltip_text(_("Delete Layer"))
-        del_layer_btn.connect("clicked", self.on_delete_layer)
-        layers_header.append(del_layer_btn)
-
-        sidebar_inner.append(layers_header)
-
-        self.layer_list_box = Gtk.ListBox()
-        self.layer_list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self.layer_list_box.connect("row-selected", self.on_layer_selected)
-        sidebar_inner.append(self.layer_list_box)
-        self._rebuild_layer_list()
-
-        sidebar_inner.append(Gtk.Separator())
-
-        # Foreground/Background color indicator
-        color_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        colors_label = Gtk.Label(label=_("Colors:"))
-        colors_label.set_halign(Gtk.Align.START)
-        color_header.append(colors_label)
-
-        # Swap button
-        swap_btn = Gtk.Button()
-        swap_btn.set_icon_name("object-flip-horizontal-symbolic")
-        swap_btn.set_tooltip_text(_("Swap Colors"))
-        swap_btn.connect("clicked", lambda b: self._swap_colors())
-        color_header.append(swap_btn)
-
-        # Custom color button (opens color dialog)
-        custom_color_btn = Gtk.Button()
-        custom_color_btn.set_icon_name("color-select-symbolic")
-        custom_color_btn.set_tooltip_text(_("Custom Color…"))
-        custom_color_btn.connect("clicked", self.on_custom_color)
-        color_header.append(custom_color_btn)
-
-        sidebar_inner.append(color_header)
-
-        # FG/BG indicator
+        # FG/BG color indicator
         self.fg_bg_widget = FgBgColorWidget(self.drawing_area)
-        sidebar_inner.append(self.fg_bg_widget)
+        left_inner.append(self.fg_bg_widget)
 
-        # Color palette (48 colors, 8 per row)
+        workspace.append(left_panel)
+        workspace.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        # ─── Center: Rulers + Canvas ───
+        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        center_box.set_hexpand(True)
+        center_box.set_vexpand(True)
+
+        # Horizontal ruler row
+        ruler_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        ruler_corner = Gtk.DrawingArea()
+        ruler_corner.set_size_request(20, 20)
+        ruler_row.append(ruler_corner)
+        self.h_ruler = RulerWidget("horizontal")
+        self.h_ruler.set_hexpand(True)
+        ruler_row.append(self.h_ruler)
+        center_box.append(ruler_row)
+
+        # Canvas row with vertical ruler
+        canvas_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.v_ruler = RulerWidget("vertical")
+        self.v_ruler.set_vexpand(True)
+        canvas_row.append(self.v_ruler)
+
+        self.canvas_scroll = Gtk.ScrolledWindow()
+        self.canvas_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.canvas_scroll.set_child(self.drawing_area)
+        self.canvas_scroll.set_vexpand(True)
+        self.canvas_scroll.set_hexpand(True)
+        canvas_row.append(self.canvas_scroll)
+        center_box.append(canvas_row)
+
+        workspace.append(center_box)
+        workspace.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        # ─── Right panel: Colors + Layers ───
+        right_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        right_panel.set_margin_end(4)
+        right_panel.set_margin_top(4)
+        right_panel.set_margin_bottom(4)
+        right_panel.set_size_request(250, -1)
+
+        right_scroll = Gtk.ScrolledWindow()
+        right_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        right_scroll.set_vexpand(True)
+        right_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        right_scroll.set_child(right_inner)
+        right_panel.append(right_scroll)
+
+        # HSV Color picker
+        color_label = Gtk.Label(label=_("Color"))
+        color_label.add_css_class("heading")
+        color_label.set_halign(Gtk.Align.START)
+        right_inner.append(color_label)
+
+        self.hsv_widget = HSVColorWidget()
+        self.hsv_widget.on_color_changed = self._on_hsv_color_changed
+        right_inner.append(self.hsv_widget)
+
+        # Palette
         palette_grid = Gtk.FlowBox()
         palette_grid.set_max_children_per_line(8)
         palette_grid.set_min_children_per_line(8)
         palette_grid.set_selection_mode(Gtk.SelectionMode.NONE)
         palette_grid.set_homogeneous(True)
-
         for color in DEFAULT_PALETTE:
             rgba = (color[0], color[1], color[2], 1.0)
             btn = ColorSwatchButton(rgba, self._on_palette_color_selected)
             palette_grid.insert(btn, -1)
-
-        sidebar_inner.append(palette_grid)
+        right_inner.append(palette_grid)
 
         # Recent colors
-        recent_label = Gtk.Label(label=_("Recent:"))
+        recent_label = Gtk.Label(label=_("Recent Colors:"))
         recent_label.set_halign(Gtk.Align.START)
-        sidebar_inner.append(recent_label)
-
+        right_inner.append(recent_label)
         self.recent_flow = Gtk.FlowBox()
         self.recent_flow.set_max_children_per_line(10)
         self.recent_flow.set_selection_mode(Gtk.SelectionMode.NONE)
         self.recent_flow.set_homogeneous(True)
-        sidebar_inner.append(self.recent_flow)
+        right_inner.append(self.recent_flow)
 
-        # Drawing area
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_child(self.drawing_area)
-        scrolled.set_vexpand(True)
-        scrolled.set_hexpand(True)
-        content_box.append(scrolled)
+        right_inner.append(Gtk.Separator())
 
-        # Status bar
+        # Layers section
+        layers_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        layers_label = Gtk.Label(label=_("Layers"))
+        layers_label.add_css_class("heading")
+        layers_label.set_halign(Gtk.Align.START)
+        layers_label.set_hexpand(True)
+        layers_header.append(layers_label)
+        add_layer_btn = Gtk.Button()
+        add_layer_btn.set_icon_name("list-add-symbolic")
+        add_layer_btn.set_tooltip_text(_("Add Layer"))
+        add_layer_btn.connect("clicked", self.on_add_layer)
+        layers_header.append(add_layer_btn)
+        del_layer_btn = Gtk.Button()
+        del_layer_btn.set_icon_name("list-remove-symbolic")
+        del_layer_btn.set_tooltip_text(_("Delete Layer"))
+        del_layer_btn.connect("clicked", self.on_delete_layer)
+        layers_header.append(del_layer_btn)
+        flatten_btn = Gtk.Button()
+        flatten_btn.set_icon_name("view-list-symbolic")
+        flatten_btn.set_tooltip_text(_("Flatten Image"))
+        flatten_btn.connect("clicked", lambda b: self._flatten_image())
+        layers_header.append(flatten_btn)
+        right_inner.append(layers_header)
+
+        # Layer opacity
+        lo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        lo_box.append(Gtk.Label(label=_("Opacity:")))
+        self.layer_opacity_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.layer_opacity_scale.set_value(100)
+        self.layer_opacity_scale.set_hexpand(True)
+        self.layer_opacity_scale.connect("value-changed", self._on_layer_opacity_changed)
+        lo_box.append(self.layer_opacity_scale)
+        right_inner.append(lo_box)
+
+        # Blend mode
+        bm_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        bm_box.append(Gtk.Label(label=_("Blend:")))
+        self.blend_mode_combo = Gtk.DropDown()
+        blend_model = Gtk.StringList.new([BLEND_MODE_LABELS[m] for m in BLEND_MODES])
+        self.blend_mode_combo.set_model(blend_model)
+        self.blend_mode_combo.set_selected(0)
+        self.blend_mode_combo.connect("notify::selected", self._on_blend_mode_changed)
+        self.blend_mode_combo.set_hexpand(True)
+        bm_box.append(self.blend_mode_combo)
+        right_inner.append(bm_box)
+
+        self.layer_list_box = Gtk.ListBox()
+        self.layer_list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.layer_list_box.connect("row-selected", self.on_layer_selected)
+        right_inner.append(self.layer_list_box)
+        self._rebuild_layer_list()
+
+        right_inner.append(Gtk.Separator())
+
+        # Navigator thumbnail
+        nav_label = Gtk.Label(label=_("Navigator"))
+        nav_label.add_css_class("heading")
+        nav_label.set_halign(Gtk.Align.START)
+        right_inner.append(nav_label)
+        self.navigator = Gtk.DrawingArea()
+        self.navigator.set_size_request(200, 120)
+        self.navigator.set_draw_func(self._draw_navigator)
+        right_inner.append(self.navigator)
+
+        workspace.append(right_panel)
+
+        # ─── Status bar ───
         self.status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         self.status_box.add_css_class("toolbar")
-        self.status_box.set_margin_start(12)
-        self.status_box.set_margin_end(12)
+        self.status_box.set_margin_start(8)
+        self.status_box.set_margin_end(8)
         self.status_box.set_margin_top(2)
         self.status_box.set_margin_bottom(2)
 
@@ -2372,6 +3757,12 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         self.status_zoom_label = Gtk.Label(label="100%")
         self.status_box.append(self.status_zoom_label)
 
+        self.status_color_label = Gtk.Label(label="")
+        self.status_box.append(self.status_color_label)
+
+        self.status_mem_label = Gtk.Label(label="")
+        self.status_box.append(self.status_mem_label)
+
         self.status_file_label = Gtk.Label(label="")
         self.status_file_label.set_hexpand(True)
         self.status_file_label.set_halign(Gtk.Align.END)
@@ -2386,6 +3777,67 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         self.update_status_bar()
         return True
 
+    def _draw_navigator(self, area, ctx, w, h, data=None):
+        """Draw canvas thumbnail in navigator"""
+        da = self.drawing_area
+        if not da.surface:
+            return
+        scale = min(w / max(1, da.width), h / max(1, da.height))
+        tw = int(da.width * scale)
+        th = int(da.height * scale)
+        ox = (w - tw) // 2
+        oy = (h - th) // 2
+        ctx.set_source_rgb(0.2, 0.2, 0.2)
+        ctx.paint()
+        ctx.save()
+        ctx.translate(ox, oy)
+        ctx.scale(scale, scale)
+        for layer in da.layers:
+            if layer["visible"]:
+                ctx.set_source_surface(layer["surface"], 0, 0)
+                ctx.paint_with_alpha(layer.get("opacity", 1.0))
+        ctx.restore()
+        # Viewport rect
+        ctx.set_source_rgba(1, 1, 0, 0.6)
+        ctx.set_line_width(1)
+        ctx.rectangle(ox, oy, tw, th)
+        ctx.stroke()
+
+    def _on_hsv_color_changed(self, rgba):
+        """Handle HSV color widget change"""
+        self.drawing_area.fg_color = rgba
+        self._add_recent_color(rgba)
+        self.fg_bg_widget.queue_draw()
+
+    def _on_tolerance_changed(self, scale):
+        self.drawing_area.fill_tolerance = int(scale.get_value())
+        self.drawing_area.color_select_tolerance = int(scale.get_value())
+
+    def _on_layer_opacity_changed(self, scale):
+        da = self.drawing_area
+        if da.layers and 0 <= da.active_layer_index < len(da.layers):
+            da.layers[da.active_layer_index]["opacity"] = scale.get_value() / 100.0
+            da.queue_draw()
+
+    def _on_blend_mode_changed(self, combo, param):
+        da = self.drawing_area
+        idx = combo.get_selected()
+        if da.layers and 0 <= da.active_layer_index < len(da.layers) and idx < len(BLEND_MODES):
+            da.layers[da.active_layer_index]["blend_mode"] = BLEND_MODES[idx]
+            da.queue_draw()
+
+    def _flatten_image(self):
+        """Flatten all layers"""
+        da = self.drawing_area
+        flat = da.flatten_layers()
+        da.save_state_for_undo()
+        da.layers = [{"name": _("Background"), "surface": flat, "visible": True,
+                       "opacity": 1.0, "blend_mode": "normal"}]
+        da.active_layer_index = 0
+        da._sync_active_layer()
+        self._rebuild_layer_list()
+        da.queue_draw()
+
     def update_status_bar(self):
         """Update all status bar elements"""
         if not hasattr(self, 'status_tool_label'):
@@ -2395,10 +3847,14 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             "brush": _("Brush"), "eraser": _("Eraser"), "line": _("Line"),
             "rectangle": _("Rectangle"), "circle": _("Circle"),
             "polygon": _("Polygon"), "star": _("Star"), "fill": _("Fill"),
-            "text": _("Text"), "select": _("Selection"),
+            "text": _("Text"), "select": _("Rect Select"),
+            "select_ellipse": _("Ellipse Select"),
+            "select_lasso": _("Lasso Select"),
+            "select_color": _("Color Select"),
             "eyedropper": _("Eyedropper"), "spray": _("Spray"),
             "arrow": _("Arrow"), "rounded_rectangle": _("Rounded Rectangle"),
             "crop": _("Crop"), "gradient": _("Gradient"),
+            "bezier": _("Bezier Path"),
         }
         tool_display = tool_names.get(da.tool, da.tool.title())
         self.status_tool_label.set_text(_("Tool: {}").format(tool_display))
@@ -2409,6 +3865,17 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             _("Canvas: {}×{}").format(da.width, da.height))
         zoom_pct = int(da.zoom_level * 100)
         self.status_zoom_label.set_text(f"{zoom_pct}%")
+
+        # Color under cursor
+        r, g, b, a = da.fg_color
+        self.status_color_label.set_text(
+            "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255)))
+
+        # Memory usage
+        mem = sum(l["surface"].get_stride() * l["surface"].get_height() for l in da.layers)
+        mem_mb = mem / (1024 * 1024)
+        self.status_mem_label.set_text("{:.1f} MB".format(mem_mb))
+
         if self.current_file:
             self.status_file_label.set_text(os.path.basename(self.current_file))
         else:
@@ -2416,6 +3883,15 @@ class PaintBrushWindow(Adw.ApplicationWindow):
 
         # Update FG/BG indicator
         self.fg_bg_widget.queue_draw()
+
+        # Update rulers
+        if hasattr(self, 'h_ruler'):
+            self.h_ruler.update_zoom(da.zoom_level)
+            self.v_ruler.update_zoom(da.zoom_level)
+
+        # Update navigator
+        if hasattr(self, 'navigator'):
+            self.navigator.queue_draw()
 
     def _on_palette_color_selected(self, color_rgba):
         """Handle palette color selection"""
@@ -2488,6 +3964,30 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             ("flip_h", lambda a, p: self.drawing_area.flip_canvas(True)),
             ("flip_v", lambda a, p: self.drawing_area.flip_canvas(False)),
             ("preferences", self.on_preferences),
+            # New actions
+            ("scale_canvas", self.on_scale_canvas),
+            ("shear_canvas", self.on_shear_canvas),
+            ("perspective_canvas", self.on_perspective_canvas),
+            ("add_layer", lambda a, p: (self.drawing_area.add_layer(), self._rebuild_layer_list())),
+            ("delete_layer", lambda a, p: (self.drawing_area.delete_layer(), self._rebuild_layer_list())),
+            ("flatten_image", lambda a, p: self._flatten_image()),
+            ("brightness_contrast", self.on_brightness_contrast),
+            ("hue_saturation", self.on_hue_saturation),
+            ("color_curves", self.on_color_curves),
+            ("grayscale", lambda a, p: self.drawing_area.convert_grayscale()),
+            ("invert_colors", lambda a, p: self.drawing_area.invert_colors()),
+            ("auto_levels", lambda a, p: self.drawing_area.auto_levels()),
+            ("filter_blur", self.on_filter_blur),
+            ("filter_sharpen", self.on_filter_sharpen),
+            ("filter_emboss", lambda a, p: self.drawing_area.apply_emboss()),
+            ("filter_edge_detect", lambda a, p: self.drawing_area.apply_edge_detect()),
+            ("filter_pixelate", self.on_filter_pixelate),
+            ("filter_noise", self.on_filter_noise),
+            ("select_none", lambda a, p: self.drawing_area.select_none()),
+            ("invert_selection", lambda a, p: self.drawing_area.invert_selection()),
+            ("fit_to_window", self.on_fit_to_window),
+            ("toggle_rulers", self.on_toggle_rulers),
+            ("toggle_fullscreen", self.on_toggle_fullscreen),
         ]
         for name, callback in actions:
             action = Gio.SimpleAction.new(name, None)
@@ -2585,6 +4085,14 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         if row is not None:
             idx = row.get_index()
             self.drawing_area.set_active_layer(idx)
+            # Update opacity/blend controls
+            layer = self.drawing_area.layers[idx]
+            if hasattr(self, 'layer_opacity_scale'):
+                self.layer_opacity_scale.set_value(layer.get("opacity", 1.0) * 100)
+            if hasattr(self, 'blend_mode_combo'):
+                bm = layer.get("blend_mode", "normal")
+                bm_idx = BLEND_MODES.index(bm) if bm in BLEND_MODES else 0
+                self.blend_mode_combo.set_selected(bm_idx)
 
     def _rebuild_layer_list(self):
         """Rebuild the layer list box"""
@@ -2686,6 +4194,167 @@ class PaintBrushWindow(Adw.ApplicationWindow):
     def on_toggle_grid(self, action, param):
         self.drawing_area.show_grid = not self.drawing_area.show_grid
         self.drawing_area.queue_draw()
+
+    def on_toggle_rulers(self, action, param):
+        da = self.drawing_area
+        da.show_rulers = not da.show_rulers
+        if hasattr(self, 'h_ruler'):
+            self.h_ruler.set_visible(da.show_rulers)
+            self.v_ruler.set_visible(da.show_rulers)
+
+    def on_toggle_fullscreen(self, action, param):
+        if self._is_fullscreen:
+            self.unfullscreen()
+        else:
+            self.fullscreen()
+        self._is_fullscreen = not self._is_fullscreen
+
+    def on_fit_to_window(self, action, param):
+        da = self.drawing_area
+        alloc = self.canvas_scroll.get_allocation()
+        if alloc.width > 0 and alloc.height > 0:
+            zoom_w = alloc.width / max(1, da.width)
+            zoom_h = alloc.height / max(1, da.height)
+            da.zoom_level = min(zoom_w, zoom_h, 1.0)
+            da.queue_draw()
+
+    # ─── Transform actions ───
+
+    def on_scale_canvas(self, action, param):
+        dialog = ScaleDialog(self, self.drawing_area.width, self.drawing_area.height)
+        dialog.connect("response", self._on_scale_response)
+        dialog.present()
+
+    def _on_scale_response(self, dialog, response):
+        if response == "ok":
+            w, h = dialog.get_dimensions()
+            self.drawing_area.scale_canvas(w, h)
+            self.update_status_bar()
+        dialog.destroy()
+
+    def on_shear_canvas(self, action, param):
+        dialog = ShearDialog(self)
+        dialog.connect("response", self._on_shear_response)
+        dialog.present()
+
+    def _on_shear_response(self, dialog, response):
+        if response == "ok":
+            sx = dialog.shear_x.get_value()
+            sy = dialog.shear_y.get_value()
+            if sx != 0 or sy != 0:
+                self.drawing_area.shear_canvas(sx, sy)
+                self.update_status_bar()
+        dialog.destroy()
+
+    def on_perspective_canvas(self, action, param):
+        dialog = PerspectiveDialog(self)
+        dialog.connect("response", self._on_perspective_response)
+        dialog.present()
+
+    def _on_perspective_response(self, dialog, response):
+        if response == "ok":
+            top = dialog.top_scale.get_value()
+            bottom = dialog.bottom_scale.get_value()
+            if top != 0 or bottom != 0:
+                self.drawing_area.perspective_transform(top, bottom)
+        dialog.destroy()
+
+    # ─── Image adjustment actions ───
+
+    def on_brightness_contrast(self, action, param):
+        dialog = AdjustmentDialog(self, _("Brightness/Contrast"), [
+            ("brightness", _("Brightness:"), -100, 100, 0),
+            ("contrast", _("Contrast:"), -100, 100, 0),
+        ])
+        dialog.connect("response", self._on_bc_response)
+        dialog.present()
+
+    def _on_bc_response(self, dialog, response):
+        if response == "ok":
+            b = int(dialog.get_value("brightness"))
+            c = int(dialog.get_value("contrast"))
+            self.drawing_area.adjust_brightness_contrast(b, c)
+        dialog.destroy()
+
+    def on_hue_saturation(self, action, param):
+        dialog = AdjustmentDialog(self, _("Hue/Saturation"), [
+            ("hue", _("Hue Shift:"), -180, 180, 0),
+            ("saturation", _("Saturation:"), -100, 100, 0),
+        ])
+        dialog.connect("response", self._on_hs_response)
+        dialog.present()
+
+    def _on_hs_response(self, dialog, response):
+        if response == "ok":
+            h = int(dialog.get_value("hue"))
+            s = int(dialog.get_value("saturation"))
+            self.drawing_area.adjust_hue_saturation(h, s)
+        dialog.destroy()
+
+    def on_color_curves(self, action, param):
+        dialog = ColorCurvesDialog(self)
+        dialog.connect("response", self._on_curves_response)
+        dialog.present()
+
+    def _on_curves_response(self, dialog, response):
+        if response == "ok":
+            lut = dialog.generate_lut()
+            self.drawing_area.apply_curves(lut)
+        dialog.destroy()
+
+    # ─── Filter actions ───
+
+    def on_filter_blur(self, action, param):
+        dialog = AdjustmentDialog(self, _("Blur"), [
+            ("radius", _("Radius:"), 1, 20, 3),
+        ])
+        dialog.connect("response", self._on_blur_response)
+        dialog.present()
+
+    def _on_blur_response(self, dialog, response):
+        if response == "ok":
+            r = int(dialog.get_value("radius"))
+            self.drawing_area.apply_blur(r)
+        dialog.destroy()
+
+    def on_filter_sharpen(self, action, param):
+        dialog = AdjustmentDialog(self, _("Sharpen"), [
+            ("amount", _("Amount:"), 1, 10, 1),
+        ])
+        dialog.connect("response", self._on_sharpen_response)
+        dialog.present()
+
+    def _on_sharpen_response(self, dialog, response):
+        if response == "ok":
+            a = dialog.get_value("amount")
+            self.drawing_area.apply_sharpen(a)
+        dialog.destroy()
+
+    def on_filter_pixelate(self, action, param):
+        dialog = AdjustmentDialog(self, _("Pixelate"), [
+            ("size", _("Block Size:"), 2, 64, 8),
+        ])
+        dialog.connect("response", self._on_pixelate_response)
+        dialog.present()
+
+    def _on_pixelate_response(self, dialog, response):
+        if response == "ok":
+            s = int(dialog.get_value("size"))
+            self.drawing_area.apply_pixelate(s)
+        dialog.destroy()
+
+    def on_filter_noise(self, action, param):
+        dialog = AdjustmentDialog(self, _("Noise"), [
+            ("amount", _("Amount:"), 1, 100, 30),
+        ])
+        dialog.connect("response", self._on_noise_response)
+        dialog.present()
+
+    def _on_noise_response(self, dialog, response):
+        if response == "ok":
+            a = int(dialog.get_value("amount"))
+            self.drawing_area.apply_noise(a)
+        dialog.destroy()
 
     # ─── Canvas actions ───
 
@@ -2991,7 +4660,8 @@ class PaintBrushWindow(Adw.ApplicationWindow):
 
             new_surface.mark_dirty()
             insert_idx = da.active_layer_index + 1
-            da.layers.insert(insert_idx, {"name": layer_name, "surface": new_surface, "visible": True})
+            da.layers.insert(insert_idx, {"name": layer_name, "surface": new_surface, "visible": True,
+                                          "opacity": 1.0, "blend_mode": "normal"})
             da.active_layer_index = insert_idx
             da._sync_active_layer()
             self._rebuild_layer_list()
@@ -3140,6 +4810,20 @@ class PaintBrushApp(Adw.Application):
         self.set_accels_for_action("win.tool_crop", ["<Shift>c"])
         self.set_accels_for_action("win.tool_gradient", ["g"])
 
+        # New selection tools
+        self.set_accels_for_action("win.tool_select_ellipse", ["<Shift>e"])
+        self.set_accels_for_action("win.tool_select_lasso", ["<Shift>l"])
+        self.set_accels_for_action("win.tool_select_color", ["<Shift>u"])
+        self.set_accels_for_action("win.tool_bezier", ["n"])
+
+        # Selection actions
+        self.set_accels_for_action("win.select_none", ["<Control><Shift>a"])
+        self.set_accels_for_action("win.invert_selection", ["<Control>i"])
+
+        # View
+        self.set_accels_for_action("win.toggle_fullscreen", ["F11"])
+        self.set_accels_for_action("win.fit_to_window", ["<Control><Shift>e"])
+
         # Rotate shortcut
         self.set_accels_for_action("win.rotate_90", ["<Control>r"])
 
@@ -3152,7 +4836,7 @@ class PaintBrushApp(Adw.Application):
         about.set_application_name(_("PaintBrush"))
         about.set_application_icon("com.danielnylander.paintbrush")
         about.set_developer_name("Daniel Nylander")
-        about.set_version("1.4.0")
+        about.set_version("2.0.0")
         about.set_website("https://github.com/yeager/paintbrush")
         about.set_issue_url("https://github.com/yeager/paintbrush/issues")
         about.set_license_type(Gtk.License.GPL_3_0)
