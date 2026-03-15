@@ -1,0 +1,385 @@
+# Swedish translation for paintbrush
+# Copyright (C) 2026 Daniel Nylander
+# This file is distributed under the same license as the paintbrush package.
+# Daniel Nylander <daniel@nylander.se>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: paintbrush 1.3.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-14 20:00+0100\n"
+"PO-Revision-Date: 2026-03-14 20:00+0100\n"
+"Last-Translator: Daniel Nylander <daniel@nylander.se>\n"
+"Language-Team: Swedish <sv@li.org>\n"
+"Language: sv\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Text"
+msgstr "Text"
+
+msgid "Enter Text"
+msgstr "Ange text"
+
+msgid "Cancel"
+msgstr "Avbryt"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "Enter text to draw"
+msgstr "Ange text för att rita"
+
+msgid "Font Size:"
+msgstr "Teckenstorlek:"
+
+msgid "PaintBrush"
+msgstr "PaintBrush"
+
+msgid "New"
+msgstr "Ny"
+
+msgid "Open"
+msgstr "Öppna"
+
+msgid "Save"
+msgstr "Spara"
+
+msgid "Save As"
+msgstr "Spara som"
+
+msgid "Export…"
+msgstr "Exportera…"
+
+msgid "Undo"
+msgstr "Ångra"
+
+msgid "Redo"
+msgstr "Gör om"
+
+msgid "Select All"
+msgstr "Markera allt"
+
+msgid "Copy"
+msgstr "Kopiera"
+
+msgid "Paste"
+msgstr "Klistra in"
+
+msgid "Cut"
+msgstr "Klipp ut"
+
+msgid "Delete Selection"
+msgstr "Ta bort markering"
+
+msgid "Zoom In"
+msgstr "Zooma in"
+
+msgid "Zoom Out"
+msgstr "Zooma ut"
+
+msgid "Zoom Reset"
+msgstr "Återställ zoom"
+
+msgid "Toggle Grid"
+msgstr "Visa/dölj rutnät"
+
+msgid "Clear Canvas"
+msgstr "Rensa duken"
+
+msgid "Resize Canvas…"
+msgstr "Ändra dukstorlek…"
+
+msgid "Crop to Selection"
+msgstr "Beskär till markering"
+
+msgid "Rotate 90°"
+msgstr "Rotera 90°"
+
+msgid "Rotate 180°"
+msgstr "Rotera 180°"
+
+msgid "Rotate 270°"
+msgstr "Rotera 270°"
+
+msgid "Flip Horizontal"
+msgstr "Vänd horisontellt"
+
+msgid "Flip Vertical"
+msgstr "Vänd vertikalt"
+
+msgid "Preferences"
+msgstr "Inställningar"
+
+msgid "Keyboard Shortcuts"
+msgstr "Tangentbordsgenvägar"
+
+msgid "About PaintBrush"
+msgstr "Om PaintBrush"
+
+msgid "Quit"
+msgstr "Avsluta"
+
+msgid "Tools:"
+msgstr "Verktyg:"
+
+msgid "Brush"
+msgstr "Pensel"
+
+msgid "Eraser"
+msgstr "Radergummi"
+
+msgid "Line"
+msgstr "Linje"
+
+msgid "Rectangle"
+msgstr "Rektangel"
+
+msgid "Rounded Rectangle"
+msgstr "Rundad rektangel"
+
+msgid "Circle"
+msgstr "Cirkel"
+
+msgid "Polygon"
+msgstr "Polygon"
+
+msgid "Star"
+msgstr "Stjärna"
+
+msgid "Arrow"
+msgstr "Pil"
+
+msgid "Fill"
+msgstr "Fyll"
+
+msgid "Selection"
+msgstr "Markering"
+
+msgid "Eyedropper"
+msgstr "Pipett"
+
+msgid "Spray"
+msgstr "Spray"
+
+msgid "Size:"
+msgstr "Storlek:"
+
+msgid "Opacity:"
+msgstr "Opacitet:"
+
+msgid "Colors:"
+msgstr "Färger:"
+
+msgid "Swap Colors"
+msgstr "Byt färger"
+
+msgid "Custom Color…"
+msgstr "Anpassad färg…"
+
+msgid "Recent:"
+msgstr "Senaste:"
+
+#, python-brace-format
+msgid "Tool: {}"
+msgstr "Verktyg: {}"
+
+#, python-brace-format
+msgid "Tool: Brush"
+msgstr "Verktyg: Pensel"
+
+#, python-brace-format
+msgid "Size: {}"
+msgstr "Storlek: {}"
+
+#, python-brace-format
+msgid "Position: {}, {}"
+msgstr "Position: {}, {}"
+
+#, python-brace-format
+msgid "Canvas: {}×{}"
+msgstr "Duk: {}×{}"
+
+msgid "Open Image"
+msgstr "Öppna bild"
+
+msgid "All Images"
+msgstr "Alla bilder"
+
+#, python-brace-format
+msgid "{} Images"
+msgstr "{}-bilder"
+
+msgid "Save Image"
+msgstr "Spara bild"
+
+msgid "Export Image"
+msgstr "Exportera bild"
+
+msgid "Resize Canvas"
+msgstr "Ändra dukstorlek"
+
+msgid "Width:"
+msgstr "Bredd:"
+
+msgid "Height:"
+msgstr "Höjd:"
+
+msgid "Export with Dimensions"
+msgstr "Exportera med mått"
+
+msgid "Export"
+msgstr "Exportera"
+
+msgid "JPEG Quality"
+msgstr "JPEG-kvalitet"
+
+msgid "Quality:"
+msgstr "Kvalitet:"
+
+msgid "Canvas"
+msgstr "Duk"
+
+msgid "Default Canvas"
+msgstr "Standardduk"
+
+msgid "Width"
+msgstr "Bredd"
+
+msgid "Height"
+msgstr "Höjd"
+
+msgid "Default Background"
+msgstr "Standardbakgrund"
+
+msgid "White"
+msgstr "Vit"
+
+msgid "Transparent"
+msgstr "Genomskinlig"
+
+msgid "Grid Size"
+msgstr "Rutnätsstorlek"
+
+msgid "General"
+msgstr "Allmänt"
+
+msgid "Saving"
+msgstr "Sparning"
+
+msgid "Auto-save Interval"
+msgstr "Autosparintervall"
+
+msgid "Off"
+msgstr "Av"
+
+msgid "1 minute"
+msgstr "1 minut"
+
+msgid "5 minutes"
+msgstr "5 minuter"
+
+msgid "10 minutes"
+msgstr "10 minuter"
+
+msgid "Default Save Format"
+msgstr "Standardformat för sparning"
+
+msgid "History"
+msgstr "Historik"
+
+msgid "Undo History Limit"
+msgstr "Gräns för ångringshistorik"
+
+msgid "Drawing"
+msgstr "Ritning"
+
+msgid "Quality"
+msgstr "Kvalitet"
+
+msgid "Antialiasing"
+msgstr "Kantutjämning"
+
+msgid "Brush Interpolation"
+msgstr "Penselinterpolering"
+
+msgid "Fast"
+msgstr "Snabb"
+
+msgid "Good"
+msgstr "Bra"
+
+msgid "Best"
+msgstr "Bäst"
+
+msgid "Welcome"
+msgstr "Välkommen"
+
+msgid "Welcome to PaintBrush"
+msgstr "Välkommen till PaintBrush"
+
+msgid "A simple painting app for Linux"
+msgstr "En enkel ritapp för Linux"
+
+msgid "Get Started"
+msgstr "Kom igång"
+
+msgid "Help translate"
+msgstr "Hjälp att översätta"
+
+msgid "Decrease Brush Size"
+msgstr "Minska penselstorlek"
+
+msgid "Increase Brush Size"
+msgstr "Öka penselstorlek"
+
+msgid "Reset Colors"
+msgstr "Återställ färger"
+
+msgid "Reset Zoom"
+msgstr "Återställ zoom"
+
+msgid "PNG Images"
+msgstr "PNG-bilder"
+
+msgid "Ready"
+msgstr "Redo"
+
+#, python-brace-format
+msgid "Opened: {}"
+msgstr "Öppnad: {}"
+
+#, python-brace-format
+msgid "Saved: {}"
+msgstr "Sparad: {}"
+
+msgid "New canvas created"
+msgstr "Ny duk skapad"
+
+msgid "Canvas cleared"
+msgstr "Duken rensad"
+
+msgid "Undone"
+msgstr "Ångrad"
+
+msgid "Nothing to undo"
+msgstr "Inget att ångra"
+
+msgid "Redone"
+msgstr "Omgjord"
+
+msgid "Nothing to redo"
+msgstr "Inget att göra om"
+
+msgid "Zoomed in"
+msgstr "Inzoomad"
+
+msgid "Zoomed out"
+msgstr "Utzoomad"
+
+msgid "Zoom reset"
+msgstr "Zoom återställd"
+
+msgid "Images"
+msgstr "Bilder"
