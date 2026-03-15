@@ -1,14 +1,7 @@
-# PaintBrush translation template
 msgid ""
 msgstr ""
-"Project-Id-Version: paintbrush 1.4.0\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-15 08:25+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: \n"
-"Language: \n"
-"MIME-Version: 1.0\n"
+"Project-Id-Version: paintbrush 2.0.0\n"
+"POT-Creation-Date: 2026-03-15 13:47+0100\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
@@ -24,6 +17,9 @@ msgstr ""
 msgid "A simple painting app for Linux"
 msgstr ""
 
+msgid "A:"
+msgstr ""
+
 msgid "About PaintBrush"
 msgstr ""
 
@@ -33,13 +29,25 @@ msgstr ""
 msgid "All Images"
 msgstr ""
 
+msgid "Amount:"
+msgstr ""
+
 msgid "Antialiasing"
+msgstr ""
+
+msgid "Apply"
 msgstr ""
 
 msgid "Arrow"
 msgstr ""
 
+msgid "Auto Levels"
+msgstr ""
+
 msgid "Auto-save Interval"
+msgstr ""
+
+msgid "B:"
 msgstr ""
 
 msgid "Background"
@@ -48,16 +56,40 @@ msgstr ""
 msgid "Best"
 msgstr ""
 
+msgid "Bezier Path"
+msgstr ""
+
+msgid "Blend:"
+msgstr ""
+
+msgid "Block Size:"
+msgstr ""
+
+msgid "Blur"
+msgstr ""
+
+msgid "Blur…"
+msgstr ""
+
+msgid "Bottom squeeze:"
+msgstr ""
+
+msgid "Brightness/Contrast"
+msgstr ""
+
+msgid "Brightness/Contrast…"
+msgstr ""
+
+msgid "Brightness:"
+msgstr ""
+
 msgid "Brush"
 msgstr ""
 
 msgid "Brush Interpolation"
 msgstr ""
 
-msgid "Brush Shape:"
-msgstr ""
-
-msgid "Calligraphy"
+msgid "Cal"
 msgstr ""
 
 msgid "Cancel"
@@ -75,7 +107,25 @@ msgstr ""
 msgid "Clear Canvas"
 msgstr ""
 
-msgid "Colors:"
+msgid "Click and drag points to adjust"
+msgstr ""
+
+msgid "Color"
+msgstr ""
+
+msgid "Color Curves"
+msgstr ""
+
+msgid "Color Curves…"
+msgstr ""
+
+msgid "Color Select"
+msgstr ""
+
+msgid "Colors"
+msgstr ""
+
+msgid "Contrast:"
 msgstr ""
 
 msgid "Copy"
@@ -87,10 +137,10 @@ msgstr ""
 msgid "Crop to Selection"
 msgstr ""
 
-msgid "Custom Color…"
+msgid "Cut"
 msgstr ""
 
-msgid "Cut"
+msgid "Darken"
 msgstr ""
 
 msgid "Default Background"
@@ -105,7 +155,22 @@ msgstr ""
 msgid "Delete Layer"
 msgstr ""
 
+msgid "Delete Selection"
+msgstr ""
+
 msgid "Drawing"
+msgstr ""
+
+msgid "Edge Detect"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Ellipse Select"
+msgstr ""
+
+msgid "Emboss"
 msgstr ""
 
 msgid "Enter Text"
@@ -135,10 +200,22 @@ msgstr ""
 msgid "Fast"
 msgstr ""
 
+msgid "File"
+msgstr ""
+
 msgid "Fill"
 msgstr ""
 
 msgid "Filled"
+msgstr ""
+
+msgid "Filters"
+msgstr ""
+
+msgid "Fit to Window"
+msgstr ""
+
+msgid "Flatten Image"
 msgstr ""
 
 msgid "Flip Horizontal"
@@ -148,6 +225,12 @@ msgid "Flip Vertical"
 msgstr ""
 
 msgid "Font Size:"
+msgstr ""
+
+msgid "Fullscreen"
+msgstr ""
+
+msgid "G:"
 msgstr ""
 
 msgid "General"
@@ -162,10 +245,13 @@ msgstr ""
 msgid "Gradient"
 msgstr ""
 
-msgid "Gradient:"
+msgid "Grayscale"
 msgstr ""
 
 msgid "Grid Size"
+msgstr ""
+
+msgid "H:"
 msgstr ""
 
 msgid "Height"
@@ -177,7 +263,31 @@ msgstr ""
 msgid "Help translate"
 msgstr ""
 
+msgid "Hex:"
+msgstr ""
+
 msgid "History"
+msgstr ""
+
+msgid "Horizontal:"
+msgstr ""
+
+msgid "Hue Shift:"
+msgstr ""
+
+msgid "Hue/Saturation"
+msgstr ""
+
+msgid "Hue/Saturation…"
+msgstr ""
+
+msgid "Image"
+msgstr ""
+
+msgid "Invert Colors"
+msgstr ""
+
+msgid "Invert Selection"
 msgstr ""
 
 msgid "JPEG Quality"
@@ -186,10 +296,19 @@ msgstr ""
 msgid "Keyboard Shortcuts"
 msgstr ""
 
+msgid "Lasso Select"
+msgstr ""
+
+msgid "Layer"
+msgstr ""
+
 msgid "Layer {}"
 msgstr ""
 
-msgid "Layers:"
+msgid "Layers"
+msgstr ""
+
+msgid "Lighten"
 msgstr ""
 
 msgid "Line"
@@ -201,7 +320,22 @@ msgstr ""
 msgid "Lock aspect ratio"
 msgstr ""
 
+msgid "Multiply"
+msgstr ""
+
+msgid "Navigator"
+msgstr ""
+
 msgid "New"
+msgstr ""
+
+msgid "Noise"
+msgstr ""
+
+msgid "Noise…"
+msgstr ""
+
+msgid "Normal"
 msgstr ""
 
 msgid "OK"
@@ -222,6 +356,9 @@ msgstr ""
 msgid "Outline"
 msgstr ""
 
+msgid "Overlay"
+msgstr ""
+
 msgid "PaintBrush"
 msgstr ""
 
@@ -229,6 +366,18 @@ msgid "Paste"
 msgstr ""
 
 msgid "Pasted Layer"
+msgstr ""
+
+msgid "Perspective"
+msgstr ""
+
+msgid "Perspective…"
+msgstr ""
+
+msgid "Pixelate"
+msgstr ""
+
+msgid "Pixelate…"
 msgstr ""
 
 msgid "Polygon"
@@ -249,7 +398,16 @@ msgstr ""
 msgid "Quit"
 msgstr ""
 
+msgid "R:"
+msgstr ""
+
 msgid "Radial"
+msgstr ""
+
+msgid "Radius:"
+msgstr ""
+
+msgid "Recent Colors:"
 msgstr ""
 
 msgid "Recent Files"
@@ -258,7 +416,7 @@ msgstr ""
 msgid "Recent Files:"
 msgstr ""
 
-msgid "Recent:"
+msgid "Rect Select"
 msgstr ""
 
 msgid "Rectangle"
@@ -285,7 +443,13 @@ msgstr ""
 msgid "Round"
 msgstr ""
 
+msgid "Rounded Rect"
+msgstr ""
+
 msgid "Rounded Rectangle"
+msgstr ""
+
+msgid "Saturation:"
 msgstr ""
 
 msgid "Save"
@@ -300,19 +464,43 @@ msgstr ""
 msgid "Saving"
 msgstr ""
 
+msgid "Scale"
+msgstr ""
+
+msgid "Scale…"
+msgstr ""
+
+msgid "Screen"
+msgstr ""
+
+msgid "Select"
+msgstr ""
+
 msgid "Select All"
 msgstr ""
 
-msgid "Selection"
+msgid "Select None"
 msgstr ""
 
-msgid "Shape:"
+msgid "Sharpen"
+msgstr ""
+
+msgid "Sharpen…"
+msgstr ""
+
+msgid "Shear"
+msgstr ""
+
+msgid "Shear…"
 msgstr ""
 
 msgid "Size:"
 msgstr ""
 
 msgid "Size: {}"
+msgstr ""
+
+msgid "Smooth Brush"
 msgstr ""
 
 msgid "Spray"
@@ -327,13 +515,19 @@ msgstr ""
 msgid "Stroke Width:"
 msgstr ""
 
-msgid "Swap Colors"
-msgstr ""
-
 msgid "Text"
 msgstr ""
 
 msgid "Toggle Grid"
+msgstr ""
+
+msgid "Toggle Rulers"
+msgstr ""
+
+msgid "Tolerance:"
+msgstr ""
+
+msgid "Tool Options"
 msgstr ""
 
 msgid "Tool: Brush"
@@ -342,7 +536,7 @@ msgstr ""
 msgid "Tool: {}"
 msgstr ""
 
-msgid "Tools:"
+msgid "Top squeeze:"
 msgstr ""
 
 msgid "Transparent"
@@ -352,6 +546,12 @@ msgid "Undo"
 msgstr ""
 
 msgid "Undo History Limit"
+msgstr ""
+
+msgid "Vertical:"
+msgstr ""
+
+msgid "View"
 msgstr ""
 
 msgid "Welcome"
