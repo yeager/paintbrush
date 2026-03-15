@@ -1,19 +1,15 @@
-# PaintBrush translation template
 # Translators:
 # Daniel Nylander <po@danielnylander.se>, 2026
-# 
+#
 msgid ""
 msgstr ""
-"Project-Id-Version: paintbrush 1.4.0\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-15 08:25+0100\n"
-"PO-Revision-Date: 2026-03-14 18:11+0000\n"
+"Project-Id-Version: paintbrush 2.0.0\n"
+"POT-Creation-Date: 2026-03-15 13:47+0100\n"
 "Last-Translator: Daniel Nylander <po@danielnylander.se>, 2026\n"
 "Language-Team: Swedish (https://app.transifex.com/danielnylander/teams/306153/sv/)\n"
-"MIME-Version: 1.0\n"
+"Language: sv\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: sv\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 msgid "1 minute"
@@ -28,6 +24,9 @@ msgstr "5 minuter"
 msgid "A simple painting app for Linux"
 msgstr "En enkel ritapp för Linux"
 
+msgid "A:"
+msgstr "A:"
+
 msgid "About PaintBrush"
 msgstr "Om PaintBrush"
 
@@ -37,14 +36,26 @@ msgstr "Lägg till lager"
 msgid "All Images"
 msgstr "Alla bilder"
 
+msgid "Amount:"
+msgstr "Mängd:"
+
 msgid "Antialiasing"
 msgstr "Kantutjämning"
+
+msgid "Apply"
+msgstr "Tillämpa"
 
 msgid "Arrow"
 msgstr "Pil"
 
+msgid "Auto Levels"
+msgstr "Auto Nivåer"
+
 msgid "Auto-save Interval"
 msgstr "Autosparintervall"
+
+msgid "B:"
+msgstr "B:"
 
 msgid "Background"
 msgstr "Bakgrund"
@@ -52,17 +63,41 @@ msgstr "Bakgrund"
 msgid "Best"
 msgstr "Bäst"
 
+msgid "Bezier Path"
+msgstr "Bezier-väg"
+
+msgid "Blend:"
+msgstr "Blandning:"
+
+msgid "Block Size:"
+msgstr "Blockstorlek:"
+
+msgid "Blur"
+msgstr "Oskärpa"
+
+msgid "Blur…"
+msgstr "Oskärpa…"
+
+msgid "Bottom squeeze:"
+msgstr "Bottenpress:"
+
+msgid "Brightness/Contrast"
+msgstr "Ljusstyrka/kontrast"
+
+msgid "Brightness/Contrast…"
+msgstr "Ljusstyrka/kontrast..."
+
+msgid "Brightness:"
+msgstr "Ljusstyrka:"
+
 msgid "Brush"
 msgstr "Pensel"
 
 msgid "Brush Interpolation"
 msgstr "Penselinterpolering"
 
-msgid "Brush Shape:"
-msgstr "Penselform:"
-
-msgid "Calligraphy"
-msgstr "Kalligrafi"
+msgid "Cal"
+msgstr "Kal"
 
 msgid "Cancel"
 msgstr "Avbryt"
@@ -79,8 +114,26 @@ msgstr "Cirkel"
 msgid "Clear Canvas"
 msgstr "Rensa duken"
 
-msgid "Colors:"
-msgstr "Färger:"
+msgid "Click and drag points to adjust"
+msgstr "Klicka och dra punkter för att justera"
+
+msgid "Color"
+msgstr "Färg"
+
+msgid "Color Curves"
+msgstr "Färgkurvor"
+
+msgid "Color Curves…"
+msgstr "Färgkurvor…"
+
+msgid "Color Select"
+msgstr "Färgväljare"
+
+msgid "Colors"
+msgstr "Färger"
+
+msgid "Contrast:"
+msgstr "Kontrast:"
 
 msgid "Copy"
 msgstr "Kopiera"
@@ -91,11 +144,11 @@ msgstr "Beskär"
 msgid "Crop to Selection"
 msgstr "Beskär till markering"
 
-msgid "Custom Color…"
-msgstr "Anpassad färg…"
-
 msgid "Cut"
 msgstr "Klipp ut"
+
+msgid "Darken"
+msgstr "Mörkare"
 
 msgid "Default Background"
 msgstr "Standardbakgrund"
@@ -109,8 +162,23 @@ msgstr "Standardformat för sparning"
 msgid "Delete Layer"
 msgstr "Ta bort lager"
 
+msgid "Delete Selection"
+msgstr "Ta bort markering"
+
 msgid "Drawing"
 msgstr "Ritning"
+
+msgid "Edge Detect"
+msgstr "Kantdetektering"
+
+msgid "Edit"
+msgstr "Redigera"
+
+msgid "Ellipse Select"
+msgstr "Ellips Välj"
+
+msgid "Emboss"
+msgstr "Prägling"
 
 msgid "Enter Text"
 msgstr "Ange text"
@@ -139,11 +207,23 @@ msgstr "Pipett"
 msgid "Fast"
 msgstr "Snabb"
 
+msgid "File"
+msgstr "Fil"
+
 msgid "Fill"
 msgstr "Fyll"
 
 msgid "Filled"
 msgstr "Fyllning"
+
+msgid "Filters"
+msgstr "Filter"
+
+msgid "Fit to Window"
+msgstr "Anpassa till fönster"
+
+msgid "Flatten Image"
+msgstr "Platta ut bild"
 
 msgid "Flip Horizontal"
 msgstr "Vänd horisontellt"
@@ -153,6 +233,12 @@ msgstr "Vänd vertikalt"
 
 msgid "Font Size:"
 msgstr "Teckenstorlek:"
+
+msgid "Fullscreen"
+msgstr "Helskärm"
+
+msgid "G:"
+msgstr "G:"
 
 msgid "General"
 msgstr "Allmänt"
@@ -166,11 +252,14 @@ msgstr "Bra"
 msgid "Gradient"
 msgstr "Gradient"
 
-msgid "Gradient:"
-msgstr "Gradient:"
+msgid "Grayscale"
+msgstr "Gråskala"
 
 msgid "Grid Size"
 msgstr "Rutnätsstorlek"
+
+msgid "H:"
+msgstr "H:"
 
 msgid "Height"
 msgstr "Höjd"
@@ -181,8 +270,32 @@ msgstr "Höjd:"
 msgid "Help translate"
 msgstr "Hjälp att översätta"
 
+msgid "Hex:"
+msgstr "Hex:"
+
 msgid "History"
 msgstr "Historik"
+
+msgid "Horizontal:"
+msgstr "Horisontell:"
+
+msgid "Hue Shift:"
+msgstr "Färgskiftning:"
+
+msgid "Hue/Saturation"
+msgstr "Färgton/mättnad"
+
+msgid "Hue/Saturation…"
+msgstr "Färgton/mättnad..."
+
+msgid "Image"
+msgstr "Bild"
+
+msgid "Invert Colors"
+msgstr "Invertera färger"
+
+msgid "Invert Selection"
+msgstr "Invertera markering"
 
 msgid "JPEG Quality"
 msgstr "JPEG-kvalitet"
@@ -190,11 +303,20 @@ msgstr "JPEG-kvalitet"
 msgid "Keyboard Shortcuts"
 msgstr "Tangentbordsgenvägar"
 
+msgid "Lasso Select"
+msgstr "Lasso Välj"
+
+msgid "Layer"
+msgstr "Lager"
+
 msgid "Layer {}"
 msgstr "Lager {}"
 
-msgid "Layers:"
-msgstr "Lager:"
+msgid "Layers"
+msgstr "Lager"
+
+msgid "Lighten"
+msgstr "Ljusare"
 
 msgid "Line"
 msgstr "Linje"
@@ -205,8 +327,23 @@ msgstr "Linjär"
 msgid "Lock aspect ratio"
 msgstr "Lås bildförhållande"
 
+msgid "Multiply"
+msgstr "Multiplicera"
+
+msgid "Navigator"
+msgstr "Navigator"
+
 msgid "New"
 msgstr "Ny"
+
+msgid "Noise"
+msgstr "Buller"
+
+msgid "Noise…"
+msgstr "Buller..."
+
+msgid "Normal"
+msgstr "Normal"
 
 msgid "OK"
 msgstr "OK"
@@ -226,6 +363,9 @@ msgstr "Öppna bild"
 msgid "Outline"
 msgstr "Kontur"
 
+msgid "Overlay"
+msgstr "Överlägg"
+
 msgid "PaintBrush"
 msgstr "PaintBrush"
 
@@ -234,6 +374,18 @@ msgstr "Klistra in"
 
 msgid "Pasted Layer"
 msgstr "Inklistrat lager"
+
+msgid "Perspective"
+msgstr "Perspektiv"
+
+msgid "Perspective…"
+msgstr "Perspektiv…"
+
+msgid "Pixelate"
+msgstr "Pixelera"
+
+msgid "Pixelate…"
+msgstr "Pixelera…"
 
 msgid "Polygon"
 msgstr "Polygon"
@@ -253,8 +405,17 @@ msgstr "Kvalitet:"
 msgid "Quit"
 msgstr "Avsluta"
 
+msgid "R:"
+msgstr "R:"
+
 msgid "Radial"
 msgstr "Radiell"
+
+msgid "Radius:"
+msgstr "Radie:"
+
+msgid "Recent Colors:"
+msgstr "Tidigare färger:"
 
 msgid "Recent Files"
 msgstr "Tidigare filer"
@@ -262,8 +423,8 @@ msgstr "Tidigare filer"
 msgid "Recent Files:"
 msgstr "Tidigare filer:"
 
-msgid "Recent:"
-msgstr "Senaste:"
+msgid "Rect Select"
+msgstr "Rect Välj"
 
 msgid "Rectangle"
 msgstr "Rektangel"
@@ -289,8 +450,14 @@ msgstr "Rotera 90°"
 msgid "Round"
 msgstr "Rund"
 
+msgid "Rounded Rect"
+msgstr "Rundad Rektangulär"
+
 msgid "Rounded Rectangle"
 msgstr "Rundad rektangel"
+
+msgid "Saturation:"
+msgstr "Färgmättnad:"
 
 msgid "Save"
 msgstr "Spara"
@@ -304,20 +471,44 @@ msgstr "Spara bild"
 msgid "Saving"
 msgstr "Sparning"
 
+msgid "Scale"
+msgstr "Skala"
+
+msgid "Scale…"
+msgstr "Skala…"
+
+msgid "Screen"
+msgstr "Skärm"
+
+msgid "Select"
+msgstr "Välj"
+
 msgid "Select All"
 msgstr "Markera allt"
 
-msgid "Selection"
-msgstr "Markering"
+msgid "Select None"
+msgstr "Välj inget"
 
-msgid "Shape:"
-msgstr "Form:"
+msgid "Sharpen"
+msgstr "Skärpa"
+
+msgid "Sharpen…"
+msgstr "Skärpa..."
+
+msgid "Shear"
+msgstr "Skära"
+
+msgid "Shear…"
+msgstr "Shear..."
 
 msgid "Size:"
 msgstr "Storlek:"
 
 msgid "Size: {}"
 msgstr "Storlek: {}"
+
+msgid "Smooth Brush"
+msgstr "Slät borste"
 
 msgid "Spray"
 msgstr "Spray"
@@ -331,14 +522,20 @@ msgstr "Stjärna"
 msgid "Stroke Width:"
 msgstr "Streckbredd:"
 
-msgid "Swap Colors"
-msgstr "Byt färger"
-
 msgid "Text"
 msgstr "Text"
 
 msgid "Toggle Grid"
 msgstr "Visa/dölj rutnät"
+
+msgid "Toggle Rulers"
+msgstr "Växla linjaler"
+
+msgid "Tolerance:"
+msgstr "Tolerans:"
+
+msgid "Tool Options"
+msgstr "Verktygsalternativ"
 
 msgid "Tool: Brush"
 msgstr "Verktyg: Pensel"
@@ -346,8 +543,8 @@ msgstr "Verktyg: Pensel"
 msgid "Tool: {}"
 msgstr "Verktyg: {}"
 
-msgid "Tools:"
-msgstr "Verktyg:"
+msgid "Top squeeze:"
+msgstr "Högsta press:"
 
 msgid "Transparent"
 msgstr "Genomskinlig"
@@ -357,6 +554,12 @@ msgstr "Ångra"
 
 msgid "Undo History Limit"
 msgstr "Gräns för ångringshistorik"
+
+msgid "Vertical:"
+msgstr "Vertikal:"
+
+msgid "View"
+msgstr "Visa"
 
 msgid "Welcome"
 msgstr "Välkommen"
