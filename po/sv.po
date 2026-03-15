@@ -208,7 +208,7 @@ msgid "Fast"
 msgstr "Snabb"
 
 msgid "File"
-msgstr "Fil"
+msgstr "Arkiv"
 
 msgid "Fill"
 msgstr "Fyll"
