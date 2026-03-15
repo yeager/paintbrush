@@ -2,7 +2,7 @@
 """
 PaintBrush - Enhanced mid-level drawing application
 Modern GTK4/Adwaita application with Cairo graphics
-Version 1.3.0 with advanced tools, file format support, and preferences
+Version 1.4.0 with layers, crop, rotate, resize, brush shapes, gradient, clipboard, recent files
 """
 
 import gi
@@ -66,6 +66,7 @@ DEFAULT_SETTINGS = {
     "welcome_shown": False,
     "grid_size": 20,
     "snap_to_grid": False,
+    "recent_files": [],
 }
 
 # 48-color default palette (6 rows x 8 columns)
@@ -112,6 +113,7 @@ SAVE_FORMATS = {
     "bmp": ("BMP", ".bmp", "image/bmp"),
     "tiff": ("TIFF", ".tif", "image/tiff"),
     "ico": ("ICO", ".ico", "image/x-icon"),
+    "webp": ("WebP", ".webp", "image/webp"),
 }
 
 
@@ -214,6 +216,24 @@ class DrawingArea(Gtk.DrawingArea):
         self.text_content = ""
         self.font_size = 16
 
+        # Layers
+        self.layers = []  # list of {"name": str, "surface": cairo.ImageSurface, "visible": bool}
+        self.active_layer_index = 0
+
+        # Brush shape: "round", "square", "calligraphy"
+        self.brush_shape = "round"
+
+        # Stroke width for shape tools (separate from brush_size)
+        self.stroke_width = 2
+        # Shape fill mode: "outline" or "filled"
+        self.shape_fill_mode = "outline"
+
+        # Crop tool state
+        self.crop_rect = None  # (x, y, w, h) for pending crop
+
+        # Gradient mode: "linear" or "radial"
+        self.gradient_mode = "linear"
+
         # Grid
         self.show_grid = False
         self.grid_size = settings.get("grid_size", 20)
@@ -272,7 +292,7 @@ class DrawingArea(Gtk.DrawingArea):
         self.initialize_surface()
 
     def initialize_surface(self):
-        """Initialize the drawing surface"""
+        """Initialize the drawing surface with a base layer"""
         self.surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
         self.ctx = cairo.Context(self.surface)
         self._apply_antialiasing(self.ctx)
@@ -286,6 +306,10 @@ class DrawingArea(Gtk.DrawingArea):
         self.ctx.set_operator(cairo.OPERATOR_SOURCE)
         self.ctx.paint()
         self.ctx.set_operator(cairo.OPERATOR_OVER)
+
+        # Initialize layers
+        self.layers = [{"name": _("Background"), "surface": self.surface, "visible": True}]
+        self.active_layer_index = 0
 
         self.set_size_request(self.width, self.height)
         self.undo_manager.save_state(self.surface)
@@ -305,39 +329,63 @@ class DrawingArea(Gtk.DrawingArea):
         return x, y
 
     def on_draw(self, area, ctx, width, height, user_data=None):
-        """Draw callback - render the surface to screen with zoom"""
-        if self.surface:
-            ctx.scale(self.zoom_level, self.zoom_level)
-            ctx.set_source_surface(self.surface, 0, 0)
-            ctx.paint()
+        """Draw callback - composite all layers to screen with zoom"""
+        ctx.scale(self.zoom_level, self.zoom_level)
 
-            # Draw preview surface (for shape previews)
-            if self.preview_surface:
-                ctx.set_source_surface(self.preview_surface, 0, 0)
+        # Composite all visible layers
+        for layer in self.layers:
+            if layer["visible"]:
+                ctx.set_source_surface(layer["surface"], 0, 0)
                 ctx.paint()
 
-            # Draw grid overlay
-            if self.show_grid:
-                self._draw_grid(ctx)
+        # Draw preview surface (for shape previews)
+        if self.preview_surface:
+            ctx.set_source_surface(self.preview_surface, 0, 0)
+            ctx.paint()
 
-            # Draw selection rectangle
-            if self.selection:
-                sx, sy, sw, sh = self.selection
-                ctx.set_dash([4, 4])
-                ctx.set_source_rgba(0, 0, 0, 0.8)
-                ctx.set_line_width(1)
-                ctx.rectangle(sx, sy, sw, sh)
-                ctx.stroke()
-                ctx.set_dash([4, 4], 4)
-                ctx.set_source_rgba(1, 1, 1, 0.8)
-                ctx.rectangle(sx, sy, sw, sh)
-                ctx.stroke()
-                ctx.set_dash([])
+        # Draw grid overlay
+        if self.show_grid:
+            self._draw_grid(ctx)
 
-                # Draw selection content if being moved
-                if self.selection_surface:
-                    ctx.set_source_surface(self.selection_surface, sx, sy)
-                    ctx.paint()
+        # Draw crop rectangle
+        if self.crop_rect:
+            cx, cy, cw, ch = self.crop_rect
+            # Dim outside crop area
+            ctx.set_source_rgba(0, 0, 0, 0.4)
+            ctx.rectangle(0, 0, self.width, cy)
+            ctx.fill()
+            ctx.rectangle(0, cy + ch, self.width, self.height - cy - ch)
+            ctx.fill()
+            ctx.rectangle(0, cy, cx, ch)
+            ctx.fill()
+            ctx.rectangle(cx + cw, cy, self.width - cx - cw, ch)
+            ctx.fill()
+            # Crop border
+            ctx.set_dash([4, 4])
+            ctx.set_source_rgba(1, 1, 1, 0.9)
+            ctx.set_line_width(1)
+            ctx.rectangle(cx, cy, cw, ch)
+            ctx.stroke()
+            ctx.set_dash([])
+
+        # Draw selection rectangle
+        if self.selection:
+            sx, sy, sw, sh = self.selection
+            ctx.set_dash([4, 4])
+            ctx.set_source_rgba(0, 0, 0, 0.8)
+            ctx.set_line_width(1)
+            ctx.rectangle(sx, sy, sw, sh)
+            ctx.stroke()
+            ctx.set_dash([4, 4], 4)
+            ctx.set_source_rgba(1, 1, 1, 0.8)
+            ctx.rectangle(sx, sy, sw, sh)
+            ctx.stroke()
+            ctx.set_dash([])
+
+            # Draw selection content if being moved
+            if self.selection_surface:
+                ctx.set_source_surface(self.selection_surface, sx, sy)
+                ctx.paint()
 
     def _draw_grid(self, ctx):
         """Draw grid overlay"""
@@ -411,6 +459,10 @@ class DrawingArea(Gtk.DrawingArea):
         if self.tool in ["brush", "eraser", "spray"]:
             self.save_state_for_undo()
 
+        if self.tool == "crop":
+            # Start crop rectangle
+            return
+
         if self.tool == "brush":
             self.draw_dot(start_x, start_y)
         elif self.tool == "eraser":
@@ -453,6 +505,16 @@ class DrawingArea(Gtk.DrawingArea):
         self.drawing = False
         self.preview_surface = None
 
+        if self.tool == "crop":
+            self.start_crop(self.drag_start_x, self.drag_start_y, end_x, end_y)
+            self.drawing = False
+            return
+
+        if self.tool == "gradient":
+            self.draw_gradient(self.drag_start_x, self.drag_start_y, end_x, end_y)
+            self.drawing = False
+            return
+
         if self.tool in ["line", "rectangle", "circle", "star", "arrow", "rounded_rectangle"]:
             self.save_state_for_undo()
 
@@ -488,7 +550,7 @@ class DrawingArea(Gtk.DrawingArea):
         x /= self.zoom_level
         y /= self.zoom_level
 
-        if self.tool in ["brush", "eraser", "fill", "text", "spray", "eyedropper", "select"]:
+        if self.tool in ["brush", "eraser", "fill", "text", "spray", "eyedropper", "select", "crop", "gradient"]:
             return
 
         if self.tool == "polygon" and n_press == 2:
@@ -530,11 +592,29 @@ class DrawingArea(Gtk.DrawingArea):
             new_x = current_x - self.selection_offset_x
             new_y = current_y - self.selection_offset_y
             self.selection = (new_x, new_y, sw, sh)
+        elif self.tool == "crop":
+            # Show crop preview
+            sx = min(self.drag_start_x, current_x)
+            sy = min(self.drag_start_y, current_y)
+            sw = abs(current_x - self.drag_start_x)
+            sh = abs(current_y - self.drag_start_y)
+            if sw > 2 and sh > 2:
+                self.crop_rect = (sx, sy, sw, sh)
+        elif self.tool == "gradient":
+            # Show gradient preview
+            self._update_gradient_preview(self.drag_start_x, self.drag_start_y, current_x, current_y)
         elif self.tool in ["line", "rectangle", "circle", "star", "arrow", "rounded_rectangle"]:
             # Show preview
             self._update_shape_preview(self.drag_start_x, self.drag_start_y, current_x, current_y)
 
         self.queue_draw()
+
+    def _finish_shape(self, ctx):
+        """Apply stroke or fill based on shape_fill_mode"""
+        if self.shape_fill_mode == "filled":
+            ctx.fill()
+        else:
+            ctx.stroke()
 
     def _update_shape_preview(self, x1, y1, x2, y2):
         """Draw shape preview on temporary surface"""
@@ -543,7 +623,7 @@ class DrawingArea(Gtk.DrawingArea):
         self._apply_antialiasing(ctx)
         r, g, b, a = self.fg_color
         ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        ctx.set_line_width(self.line_width)
+        ctx.set_line_width(self.stroke_width)
 
         if self.tool == "line":
             ctx.move_to(x1, y1)
@@ -551,29 +631,47 @@ class DrawingArea(Gtk.DrawingArea):
             ctx.stroke()
         elif self.tool == "rectangle":
             ctx.rectangle(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
-            ctx.stroke()
+            self._finish_shape(ctx)
         elif self.tool == "circle":
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
             radius = math.sqrt((x2 - x1)**2 + (y2 - y1)**2) / 2
             ctx.arc(cx, cy, radius, 0, 2 * math.pi)
-            ctx.stroke()
+            self._finish_shape(ctx)
         elif self.tool == "star":
             self._draw_star_path(ctx, x1, y1, x2, y2)
-            ctx.stroke()
+            self._finish_shape(ctx)
         elif self.tool == "arrow":
             self._draw_arrow_path(ctx, x1, y1, x2, y2)
         elif self.tool == "rounded_rectangle":
             self._draw_rounded_rect_path(ctx, x1, y1, x2, y2)
-            ctx.stroke()
+            self._finish_shape(ctx)
+
+    def _update_gradient_preview(self, x1, y1, x2, y2):
+        """Draw gradient preview on temporary surface"""
+        self.preview_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
+        ctx = cairo.Context(self.preview_surface)
+        r1, g1, b1, a1 = self.fg_color
+        r2, g2, b2, a2 = self.bg_color
+        if self.gradient_mode == "linear":
+            pat = cairo.LinearGradient(x1, y1, x2, y2)
+        else:
+            cx = (x1 + x2) / 2
+            cy = (y1 + y2) / 2
+            radius = math.sqrt((x2 - x1)**2 + (y2 - y1)**2) / 2
+            pat = cairo.RadialGradient(cx, cy, 0, cx, cy, max(1, radius))
+        pat.add_color_stop_rgba(0, r1, g1, b1, a1 * self.brush_opacity * 0.6)
+        pat.add_color_stop_rgba(1, r2, g2, b2, a2 * self.brush_opacity * 0.6)
+        ctx.set_source(pat)
+        ctx.paint()
 
     # ─── Drawing primitives ───
 
     def draw_star(self, x1, y1, x2, y2):
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.line_width)
+        self.ctx.set_line_width(self.stroke_width)
         self._draw_star_path(self.ctx, x1, y1, x2, y2)
-        self.ctx.stroke()
+        self._finish_shape(self.ctx)
 
     def _draw_star_path(self, ctx, x1, y1, x2, y2):
         center_x = (x1 + x2) / 2
@@ -597,17 +695,17 @@ class DrawingArea(Gtk.DrawingArea):
             return
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.line_width)
+        self.ctx.set_line_width(self.stroke_width)
         self.ctx.move_to(*self.polygon_points[0])
         for point in self.polygon_points[1:]:
             self.ctx.line_to(*point)
         self.ctx.close_path()
-        self.ctx.stroke()
+        self._finish_shape(self.ctx)
 
     def draw_arrow(self, x1, y1, x2, y2):
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.line_width)
+        self.ctx.set_line_width(self.stroke_width)
         self._draw_arrow_path(self.ctx, x1, y1, x2, y2)
 
     def _draw_arrow_path(self, ctx, x1, y1, x2, y2):
@@ -631,9 +729,9 @@ class DrawingArea(Gtk.DrawingArea):
     def draw_rounded_rectangle(self, x1, y1, x2, y2):
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.line_width)
+        self.ctx.set_line_width(self.stroke_width)
         self._draw_rounded_rect_path(self.ctx, x1, y1, x2, y2)
-        self.ctx.stroke()
+        self._finish_shape(self.ctx)
 
     def _draw_rounded_rect_path(self, ctx, x1, y1, x2, y2):
         x = min(x1, x2)
@@ -761,7 +859,19 @@ class DrawingArea(Gtk.DrawingArea):
     def draw_dot(self, x, y):
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.arc(x, y, self.brush_size / 2, 0, 2 * math.pi)
+        half = self.brush_size / 2
+        if self.brush_shape == "square":
+            self.ctx.rectangle(x - half, y - half, self.brush_size, self.brush_size)
+        elif self.brush_shape == "calligraphy":
+            # Angled ellipse for calligraphy effect
+            self.ctx.save()
+            self.ctx.translate(x, y)
+            self.ctx.rotate(-math.pi / 4)
+            self.ctx.scale(1, 3)
+            self.ctx.arc(0, 0, half, 0, 2 * math.pi)
+            self.ctx.restore()
+        else:
+            self.ctx.arc(x, y, half, 0, 2 * math.pi)
         self.ctx.fill()
         self.queue_draw()
 
@@ -775,11 +885,34 @@ class DrawingArea(Gtk.DrawingArea):
     def draw_line_segment(self, x1, y1, x2, y2):
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.brush_size)
-        self.ctx.set_line_cap(cairo.LINE_CAP_ROUND)
-        self.ctx.move_to(x1, y1)
-        self.ctx.line_to(x2, y2)
-        self.ctx.stroke()
+        if self.brush_shape == "square":
+            self.ctx.set_line_width(self.brush_size)
+            self.ctx.set_line_cap(cairo.LINE_CAP_SQUARE)
+            self.ctx.move_to(x1, y1)
+            self.ctx.line_to(x2, y2)
+            self.ctx.stroke()
+        elif self.brush_shape == "calligraphy":
+            # Draw calligraphy stroke using stamped ellipses
+            dist = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            steps = max(1, int(dist))
+            half = self.brush_size / 2
+            for i in range(steps + 1):
+                t = i / max(1, steps)
+                px = x1 + (x2 - x1) * t
+                py = y1 + (y2 - y1) * t
+                self.ctx.save()
+                self.ctx.translate(px, py)
+                self.ctx.rotate(-math.pi / 4)
+                self.ctx.scale(1, 3)
+                self.ctx.arc(0, 0, half, 0, 2 * math.pi)
+                self.ctx.restore()
+                self.ctx.fill()
+        else:
+            self.ctx.set_line_width(self.brush_size)
+            self.ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+            self.ctx.move_to(x1, y1)
+            self.ctx.line_to(x2, y2)
+            self.ctx.stroke()
 
     def erase_line_segment(self, x1, y1, x2, y2):
         self.ctx.set_operator(cairo.OPERATOR_CLEAR)
@@ -793,7 +926,7 @@ class DrawingArea(Gtk.DrawingArea):
     def draw_line(self, x1, y1, x2, y2):
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.line_width)
+        self.ctx.set_line_width(self.stroke_width)
         self.ctx.move_to(x1, y1)
         self.ctx.line_to(x2, y2)
         self.ctx.stroke()
@@ -805,9 +938,9 @@ class DrawingArea(Gtk.DrawingArea):
         h = abs(y2 - y1)
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.line_width)
+        self.ctx.set_line_width(self.stroke_width)
         self.ctx.rectangle(x, y, w, h)
-        self.ctx.stroke()
+        self._finish_shape(self.ctx)
 
     def draw_circle(self, x1, y1, x2, y2):
         center_x = (x1 + x2) / 2
@@ -815,9 +948,9 @@ class DrawingArea(Gtk.DrawingArea):
         radius = math.sqrt((x2 - x1)**2 + (y2 - y1)**2) / 2
         r, g, b, a = self.fg_color
         self.ctx.set_source_rgba(r, g, b, a * self.brush_opacity)
-        self.ctx.set_line_width(self.line_width)
+        self.ctx.set_line_width(self.stroke_width)
         self.ctx.arc(center_x, center_y, radius, 0, 2 * math.pi)
-        self.ctx.stroke()
+        self._finish_shape(self.ctx)
 
     def clear_canvas(self):
         self.save_state_for_undo()
@@ -1004,21 +1137,154 @@ class DrawingArea(Gtk.DrawingArea):
         self._apply_antialiasing(self.ctx)
         self.queue_draw()
 
+    # ─── Layer management ───
+
+    def _get_active_surface(self):
+        """Return the active layer's surface"""
+        if self.layers and 0 <= self.active_layer_index < len(self.layers):
+            return self.layers[self.active_layer_index]["surface"]
+        return self.surface
+
+    def _sync_active_layer(self):
+        """Keep self.surface/ctx pointing to the active layer"""
+        self.surface = self._get_active_surface()
+        self.ctx = cairo.Context(self.surface)
+        self._apply_antialiasing(self.ctx)
+
+    def add_layer(self, name=None):
+        """Add a new transparent layer above the active one"""
+        if name is None:
+            name = _("Layer {}").format(len(self.layers) + 1)
+        new_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
+        # Transparent by default
+        ctx = cairo.Context(new_surface)
+        ctx.set_source_rgba(0, 0, 0, 0)
+        ctx.set_operator(cairo.OPERATOR_SOURCE)
+        ctx.paint()
+        insert_idx = self.active_layer_index + 1
+        self.layers.insert(insert_idx, {"name": name, "surface": new_surface, "visible": True})
+        self.active_layer_index = insert_idx
+        self._sync_active_layer()
+
+    def delete_layer(self, index=None):
+        """Delete a layer (cannot delete the last layer)"""
+        if len(self.layers) <= 1:
+            return
+        if index is None:
+            index = self.active_layer_index
+        if 0 <= index < len(self.layers):
+            self.layers.pop(index)
+            if self.active_layer_index >= len(self.layers):
+                self.active_layer_index = len(self.layers) - 1
+            self._sync_active_layer()
+
+    def set_active_layer(self, index):
+        """Set the active layer by index"""
+        if 0 <= index < len(self.layers):
+            self.active_layer_index = index
+            self._sync_active_layer()
+
+    def flatten_layers(self):
+        """Flatten all layers into a single surface"""
+        flat = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
+        ctx = cairo.Context(flat)
+        self._apply_antialiasing(ctx)
+        # Fill background
+        bg = self.settings.get("background_color", "white")
+        if bg == "transparent":
+            ctx.set_source_rgba(0, 0, 0, 0)
+        else:
+            ctx.set_source_rgb(1, 1, 1)
+        ctx.set_operator(cairo.OPERATOR_SOURCE)
+        ctx.paint()
+        ctx.set_operator(cairo.OPERATOR_OVER)
+        for layer in self.layers:
+            if layer["visible"]:
+                ctx.set_source_surface(layer["surface"], 0, 0)
+                ctx.paint()
+        return flat
+
+    # ─── Crop tool ───
+
+    def start_crop(self, x1, y1, x2, y2):
+        """Set the pending crop rectangle"""
+        sx = min(x1, x2)
+        sy = min(y1, y2)
+        sw = abs(x2 - x1)
+        sh = abs(y2 - y1)
+        if sw > 2 and sh > 2:
+            self.crop_rect = (sx, sy, sw, sh)
+            self.queue_draw()
+
+    def confirm_crop(self):
+        """Confirm the pending crop"""
+        if not self.crop_rect:
+            return
+        sx, sy, sw, sh = [int(v) for v in self.crop_rect]
+        if sw <= 0 or sh <= 0:
+            return
+        self.save_state_for_undo()
+        # Crop all layers
+        new_layers = []
+        for layer in self.layers:
+            new_surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, sw, sh)
+            ctx = cairo.Context(new_surf)
+            ctx.set_source_surface(layer["surface"], -sx, -sy)
+            ctx.paint()
+            new_layers.append({"name": layer["name"], "surface": new_surf, "visible": layer["visible"]})
+        self.layers = new_layers
+        self.width = sw
+        self.height = sh
+        self._sync_active_layer()
+        self.set_size_request(self.width, self.height)
+        self.crop_rect = None
+        self.undo_manager.save_state(self.surface)
+        self.queue_draw()
+
+    def cancel_crop(self):
+        """Cancel the pending crop"""
+        self.crop_rect = None
+        self.queue_draw()
+
+    # ─── Gradient tool ───
+
+    def draw_gradient(self, x1, y1, x2, y2):
+        """Draw a gradient from fg_color to bg_color"""
+        self.save_state_for_undo()
+        r1, g1, b1, a1 = self.fg_color
+        r2, g2, b2, a2 = self.bg_color
+
+        if self.gradient_mode == "linear":
+            pat = cairo.LinearGradient(x1, y1, x2, y2)
+        else:
+            cx = (x1 + x2) / 2
+            cy = (y1 + y2) / 2
+            radius = math.sqrt((x2 - x1)**2 + (y2 - y1)**2) / 2
+            pat = cairo.RadialGradient(cx, cy, 0, cx, cy, radius)
+
+        pat.add_color_stop_rgba(0, r1, g1, b1, a1 * self.brush_opacity)
+        pat.add_color_stop_rgba(1, r2, g2, b2, a2 * self.brush_opacity)
+
+        self.ctx.set_source(pat)
+        self.ctx.paint()
+        self.queue_draw()
+
     # ─── File I/O ───
 
     def save_image(self, filename):
-        """Save canvas to file in the appropriate format"""
+        """Save canvas to file in the appropriate format (flattens layers)"""
+        flat_surface = self.flatten_layers()
         ext = os.path.splitext(filename)[1].lower()
         if ext == '.png':
-            self.surface.write_to_png(filename)
+            flat_surface.write_to_png(filename)
         else:
             # Use GdkPixbuf for non-PNG formats
-            self.surface.flush()
+            flat_surface.flush()
             w, h = self.width, self.height
-            data = bytes(self.surface.get_data())
+            data = bytes(flat_surface.get_data())
             # Convert BGRA premultiplied to RGBA
             rgba_data = bytearray(w * h * 4)
-            stride = self.surface.get_stride()
+            stride = flat_surface.get_stride()
             for y in range(h):
                 for x in range(w):
                     src_off = y * stride + x * 4
@@ -1050,6 +1316,8 @@ class DrawingArea(Gtk.DrawingArea):
                 pixbuf.savev(filename, "tiff", [], [])
             elif ext == '.ico':
                 pixbuf.savev(filename, "ico", [], [])
+            elif ext == '.webp':
+                pixbuf.savev(filename, "webp", [], [])
             else:
                 self.surface.write_to_png(filename)
 
@@ -1092,6 +1360,8 @@ class DrawingArea(Gtk.DrawingArea):
             fmt = "tiff"
         elif ext == '.ico':
             fmt = "ico"
+        elif ext == '.webp':
+            fmt = "webp"
         scaled.savev(filename, fmt, [], [])
 
     def load_image(self, filename):
@@ -1258,7 +1528,7 @@ class TextInputDialog(Adw.MessageDialog):
 
 
 class CanvasResizeDialog(Adw.MessageDialog):
-    """Dialog for canvas resize"""
+    """Dialog for canvas resize with aspect ratio lock"""
 
     def __init__(self, parent, current_width, current_height):
         super().__init__(transient_for=parent)
@@ -1267,6 +1537,9 @@ class CanvasResizeDialog(Adw.MessageDialog):
         self.add_response("ok", _("OK"))
         self.set_default_response("ok")
         self.set_close_response("cancel")
+
+        self._aspect_ratio = current_width / max(1, current_height)
+        self._updating = False
 
         grid = Gtk.Grid(row_spacing=8, column_spacing=12)
 
@@ -1280,7 +1553,30 @@ class CanvasResizeDialog(Adw.MessageDialog):
         self.height_spin.set_value(current_height)
         grid.attach(self.height_spin, 1, 1, 1, 1)
 
+        # Aspect ratio lock
+        self.lock_check = Gtk.CheckButton(label=_("Lock aspect ratio"))
+        grid.attach(self.lock_check, 0, 2, 2, 1)
+
+        self.width_spin.connect("value-changed", self._on_width_changed)
+        self.height_spin.connect("value-changed", self._on_height_changed)
+
         self.set_extra_child(grid)
+
+    def _on_width_changed(self, spin):
+        if self._updating or not self.lock_check.get_active():
+            return
+        self._updating = True
+        new_h = int(spin.get_value() / self._aspect_ratio)
+        self.height_spin.set_value(max(1, new_h))
+        self._updating = False
+
+    def _on_height_changed(self, spin):
+        if self._updating or not self.lock_check.get_active():
+            return
+        self._updating = True
+        new_w = int(spin.get_value() * self._aspect_ratio)
+        self.width_spin.set_value(max(1, new_w))
+        self._updating = False
 
     def get_dimensions(self):
         return int(self.width_spin.get_value()), int(self.height_spin.get_value())
@@ -1529,6 +1825,8 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             ("brush_size_down", self.on_brush_size_down),
             ("reset_colors", self.on_reset_colors),
             ("swap_colors", self.on_swap_colors),
+            ("confirm_crop", self.on_confirm_crop),
+            ("cancel_crop", self.on_cancel_crop),
         ]
         for name, callback in action_defs:
             action = Gio.SimpleAction.new(name, None)
@@ -1551,6 +1849,8 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             "tool_spray": "spray",
             "tool_arrow": "arrow",
             "tool_rounded_rectangle": "rounded_rectangle",
+            "tool_crop": "crop",
+            "tool_gradient": "gradient",
         }
         for action_name, tool_id in tool_keys.items():
             action = Gio.SimpleAction.new(action_name, None)
@@ -1706,6 +2006,22 @@ class PaintBrushWindow(Adw.ApplicationWindow):
                         <property name="accelerator">w</property>
                     </object></child>
                     <child><object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Crop</property>
+                        <property name="accelerator">&lt;Shift&gt;c</property>
+                    </object></child>
+                    <child><object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Gradient</property>
+                        <property name="accelerator">g</property>
+                    </object></child>
+                    <child><object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Confirm Crop</property>
+                        <property name="accelerator">Return</property>
+                    </object></child>
+                    <child><object class="GtkShortcutsShortcut">
+                        <property name="title" translatable="yes">Rotate 90°</property>
+                        <property name="accelerator">&lt;Primary&gt;r</property>
+                    </object></child>
+                    <child><object class="GtkShortcutsShortcut">
                         <property name="title" translatable="yes">Decrease Brush Size</property>
                         <property name="accelerator">bracketleft</property>
                     </object></child>
@@ -1753,6 +2069,14 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         file_section.append(_("Save As"), "win.save_as")
         file_section.append(_("Export…"), "win.export")
         menu.append_section(None, file_section)
+
+        # Recent files submenu
+        self.recent_menu = Gio.Menu()
+        recent_files = self.settings.get("recent_files", [])
+        for i, fpath in enumerate(recent_files[:10]):
+            self.recent_menu.append(os.path.basename(fpath), f"win.open_recent_{i}")
+        if recent_files:
+            menu.append_submenu(_("Recent Files"), self.recent_menu)
 
         edit_section = Gio.Menu()
         edit_section.append(_("Undo"), "win.undo")
@@ -1837,6 +2161,8 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             ("select", _("Selection"), "selection-mode-symbolic"),
             ("eyedropper", _("Eyedropper"), "color-select-symbolic"),
             ("spray", _("Spray"), "weather-fog-symbolic"),
+            ("crop", _("Crop"), "edit-cut-symbolic"),
+            ("gradient", _("Gradient"), "color-profile-symbolic"),
         ]
 
         tool_flow = Gtk.FlowBox()
@@ -1875,6 +2201,90 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         self.opacity_scale.set_value(100)
         self.opacity_scale.connect("value-changed", self.on_opacity_changed)
         sidebar_inner.append(self.opacity_scale)
+
+        # Stroke width for shape tools
+        stroke_label = Gtk.Label(label=_("Stroke Width:"))
+        stroke_label.set_halign(Gtk.Align.START)
+        sidebar_inner.append(stroke_label)
+
+        self.stroke_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 30, 1)
+        self.stroke_scale.set_value(2)
+        self.stroke_scale.connect("value-changed", self.on_stroke_width_changed)
+        sidebar_inner.append(self.stroke_scale)
+
+        # Fill vs outline toggle
+        fill_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        fill_label = Gtk.Label(label=_("Shape:"))
+        fill_box.append(fill_label)
+
+        self.outline_btn = Gtk.ToggleButton(label=_("Outline"))
+        self.outline_btn.set_active(True)
+        self.outline_btn.connect("toggled", self.on_fill_mode_changed, "outline")
+        fill_box.append(self.outline_btn)
+
+        self.filled_btn = Gtk.ToggleButton(label=_("Filled"))
+        self.filled_btn.connect("toggled", self.on_fill_mode_changed, "filled")
+        fill_box.append(self.filled_btn)
+        sidebar_inner.append(fill_box)
+
+        # Brush shape selector
+        brush_shape_label = Gtk.Label(label=_("Brush Shape:"))
+        brush_shape_label.set_halign(Gtk.Align.START)
+        sidebar_inner.append(brush_shape_label)
+
+        brush_shape_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self.brush_shape_buttons = {}
+        for shape_id, shape_name in [("round", _("Round")), ("square", _("Square")), ("calligraphy", _("Calligraphy"))]:
+            btn = Gtk.ToggleButton(label=shape_name)
+            btn.connect("toggled", self.on_brush_shape_changed, shape_id)
+            brush_shape_box.append(btn)
+            self.brush_shape_buttons[shape_id] = btn
+        self.brush_shape_buttons["round"].set_active(True)
+        sidebar_inner.append(brush_shape_box)
+
+        # Gradient mode selector
+        gradient_label = Gtk.Label(label=_("Gradient:"))
+        gradient_label.set_halign(Gtk.Align.START)
+        sidebar_inner.append(gradient_label)
+
+        gradient_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self.gradient_buttons = {}
+        for gid, gname in [("linear", _("Linear")), ("radial", _("Radial"))]:
+            btn = Gtk.ToggleButton(label=gname)
+            btn.connect("toggled", self.on_gradient_mode_changed, gid)
+            gradient_box.append(btn)
+            self.gradient_buttons[gid] = btn
+        self.gradient_buttons["linear"].set_active(True)
+        sidebar_inner.append(gradient_box)
+
+        sidebar_inner.append(Gtk.Separator())
+
+        # Layers section
+        layers_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        layers_label = Gtk.Label(label=_("Layers:"))
+        layers_label.set_halign(Gtk.Align.START)
+        layers_label.set_hexpand(True)
+        layers_header.append(layers_label)
+
+        add_layer_btn = Gtk.Button()
+        add_layer_btn.set_icon_name("list-add-symbolic")
+        add_layer_btn.set_tooltip_text(_("Add Layer"))
+        add_layer_btn.connect("clicked", self.on_add_layer)
+        layers_header.append(add_layer_btn)
+
+        del_layer_btn = Gtk.Button()
+        del_layer_btn.set_icon_name("list-remove-symbolic")
+        del_layer_btn.set_tooltip_text(_("Delete Layer"))
+        del_layer_btn.connect("clicked", self.on_delete_layer)
+        layers_header.append(del_layer_btn)
+
+        sidebar_inner.append(layers_header)
+
+        self.layer_list_box = Gtk.ListBox()
+        self.layer_list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.layer_list_box.connect("row-selected", self.on_layer_selected)
+        sidebar_inner.append(self.layer_list_box)
+        self._rebuild_layer_list()
 
         sidebar_inner.append(Gtk.Separator())
 
@@ -1986,6 +2396,7 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             "text": _("Text"), "select": _("Selection"),
             "eyedropper": _("Eyedropper"), "spray": _("Spray"),
             "arrow": _("Arrow"), "rounded_rectangle": _("Rounded Rectangle"),
+            "crop": _("Crop"), "gradient": _("Gradient"),
         }
         tool_display = tool_names.get(da.tool, da.tool.title())
         self.status_tool_label.set_text(_("Tool: {}").format(tool_display))
@@ -2081,6 +2492,13 @@ class PaintBrushWindow(Adw.ApplicationWindow):
             action.connect("activate", callback)
             self.add_action(action)
 
+        # Recent files actions
+        recent_files = self.settings.get("recent_files", [])
+        for i, fpath in enumerate(recent_files[:10]):
+            action = Gio.SimpleAction.new(f"open_recent_{i}", None)
+            action.connect("activate", self._on_open_recent, fpath)
+            self.add_action(action)
+
     def setup_auto_save(self):
         """Setup auto-save timer based on settings"""
         interval = self.settings.get("auto_save_interval", 0)
@@ -2122,11 +2540,85 @@ class PaintBrushWindow(Adw.ApplicationWindow):
     def on_size_changed(self, scale):
         size = int(scale.get_value())
         self.drawing_area.brush_size = size
-        self.drawing_area.line_width = max(1, size // 2)
         self.update_status_bar()
 
     def on_opacity_changed(self, scale):
         self.drawing_area.brush_opacity = scale.get_value() / 100.0
+
+    def on_stroke_width_changed(self, scale):
+        self.drawing_area.stroke_width = int(scale.get_value())
+
+    def on_fill_mode_changed(self, button, mode):
+        if button.get_active():
+            self.drawing_area.shape_fill_mode = mode
+            # Toggle the other button off
+            if mode == "outline":
+                self.filled_btn.set_active(False)
+            else:
+                self.outline_btn.set_active(False)
+
+    def on_brush_shape_changed(self, button, shape_id):
+        if button.get_active():
+            self.drawing_area.brush_shape = shape_id
+            for sid, btn in self.brush_shape_buttons.items():
+                if sid != shape_id:
+                    btn.set_active(False)
+
+    def on_gradient_mode_changed(self, button, mode):
+        if button.get_active():
+            self.drawing_area.gradient_mode = mode
+            for gid, btn in self.gradient_buttons.items():
+                if gid != mode:
+                    btn.set_active(False)
+
+    def on_add_layer(self, button):
+        self.drawing_area.add_layer()
+        self._rebuild_layer_list()
+
+    def on_delete_layer(self, button):
+        self.drawing_area.delete_layer()
+        self._rebuild_layer_list()
+
+    def on_layer_selected(self, listbox, row):
+        if row is not None:
+            idx = row.get_index()
+            self.drawing_area.set_active_layer(idx)
+
+    def _rebuild_layer_list(self):
+        """Rebuild the layer list box"""
+        while True:
+            row = self.layer_list_box.get_row_at_index(0)
+            if row is None:
+                break
+            self.layer_list_box.remove(row)
+        for i, layer in enumerate(self.drawing_area.layers):
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            row_box.set_margin_start(4)
+            row_box.set_margin_end(4)
+            row_box.set_margin_top(2)
+            row_box.set_margin_bottom(2)
+
+            vis_btn = Gtk.CheckButton()
+            vis_btn.set_active(layer["visible"])
+            vis_btn.connect("toggled", self._on_layer_visibility_toggled, i)
+            row_box.append(vis_btn)
+
+            label = Gtk.Label(label=layer["name"])
+            label.set_hexpand(True)
+            label.set_halign(Gtk.Align.START)
+            row_box.append(label)
+
+            self.layer_list_box.append(row_box)
+
+        # Select active layer
+        active_row = self.layer_list_box.get_row_at_index(self.drawing_area.active_layer_index)
+        if active_row:
+            self.layer_list_box.select_row(active_row)
+
+    def _on_layer_visibility_toggled(self, button, layer_index):
+        if 0 <= layer_index < len(self.drawing_area.layers):
+            self.drawing_area.layers[layer_index]["visible"] = button.get_active()
+            self.drawing_area.queue_draw()
 
     # ─── Edit actions ───
 
@@ -2142,13 +2634,13 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         self.drawing_area.select_all()
 
     def on_copy(self, action, param):
-        self.drawing_area.copy_selection()
+        self._copy_to_clipboard()
 
     def on_paste(self, action, param):
-        self.drawing_area.paste_selection()
+        self._paste_from_clipboard()
 
     def on_cut(self, action, param):
-        self.drawing_area.cut_selection()
+        self._cut_to_clipboard()
 
     def on_delete_selection(self, action, param):
         self.drawing_area.delete_selection()
@@ -2156,13 +2648,11 @@ class PaintBrushWindow(Adw.ApplicationWindow):
     def on_brush_size_up(self, action, param):
         new_size = min(50, self.drawing_area.brush_size + 1)
         self.drawing_area.brush_size = new_size
-        self.drawing_area.line_width = max(1, new_size // 2)
         self.size_scale.set_value(new_size)
 
     def on_brush_size_down(self, action, param):
         new_size = max(1, self.drawing_area.brush_size - 1)
         self.drawing_area.brush_size = new_size
-        self.drawing_area.line_width = max(1, new_size // 2)
         self.size_scale.set_value(new_size)
 
     def on_reset_colors(self, action, param):
@@ -2172,6 +2662,13 @@ class PaintBrushWindow(Adw.ApplicationWindow):
 
     def on_swap_colors(self, action, param):
         self._swap_colors()
+
+    def on_confirm_crop(self, action, param):
+        self.drawing_area.confirm_crop()
+        self.update_status_bar()
+
+    def on_cancel_crop(self, action, param):
+        self.drawing_area.cancel_crop()
 
     # ─── View actions ───
 
@@ -2257,7 +2754,7 @@ class PaintBrushWindow(Adw.ApplicationWindow):
                 self.drawing_area.load_image(filename)
                 self.current_file = filename
                 self.settings["last_open_dir"] = os.path.dirname(filename)
-                _save_settings(self.settings)
+                self._add_recent_file(filename)
                 self.update_status_bar()
         except GLib.Error:
             pass
@@ -2383,6 +2880,128 @@ class PaintBrushWindow(Adw.ApplicationWindow):
         prefs = PreferencesDialog(self, self.settings)
         prefs.present()
 
+    def _on_open_recent(self, action, param, filepath):
+        if os.path.isfile(filepath):
+            self.drawing_area.load_image(filepath)
+            self.current_file = filepath
+            self._add_recent_file(filepath)
+            self.update_status_bar()
+
+    def _add_recent_file(self, filepath):
+        """Add a file to the recent files list in settings"""
+        recent = self.settings.get("recent_files", [])
+        if filepath in recent:
+            recent.remove(filepath)
+        recent.insert(0, filepath)
+        self.settings["recent_files"] = recent[:10]
+        _save_settings(self.settings)
+
+    # ─── Clipboard (Gdk.Clipboard) ───
+
+    def _copy_to_clipboard(self):
+        """Copy canvas/selection to system clipboard"""
+        da = self.drawing_area
+        if da.selection:
+            sx, sy, sw, sh = [int(v) for v in da.selection]
+            if sw <= 0 or sh <= 0:
+                return
+            surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, sw, sh)
+            ctx = cairo.Context(surf)
+            ctx.set_source_surface(da.surface, -sx, -sy)
+            ctx.paint()
+        else:
+            surf = da.flatten_layers()
+            sw, sh = da.width, da.height
+        # Convert to GdkPixbuf for clipboard
+        surf.flush()
+        data = bytes(surf.get_data())
+        stride = surf.get_stride()
+        rgba_data = bytearray(sw * sh * 4)
+        for y in range(sh):
+            for x in range(sw):
+                src_off = y * stride + x * 4
+                dst_off = (y * sw + x) * 4
+                b_val = data[src_off]
+                g_val = data[src_off + 1]
+                r_val = data[src_off + 2]
+                a_val = data[src_off + 3]
+                if a_val > 0:
+                    r_val = min(255, r_val * 255 // a_val)
+                    g_val = min(255, g_val * 255 // a_val)
+                    b_val = min(255, b_val * 255 // a_val)
+                rgba_data[dst_off] = r_val
+                rgba_data[dst_off + 1] = g_val
+                rgba_data[dst_off + 2] = b_val
+                rgba_data[dst_off + 3] = a_val
+        pixbuf = GdkPixbuf.Pixbuf.new_from_data(
+            bytes(rgba_data), GdkPixbuf.Colorspace.RGB, True, 8,
+            sw, sh, sw * 4)
+        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+        clipboard = self.get_clipboard()
+        clipboard.set(texture)
+
+    def _paste_from_clipboard(self):
+        """Paste from system clipboard as a new layer"""
+        clipboard = self.get_clipboard()
+        clipboard.read_texture_async(None, self._on_clipboard_texture_ready)
+
+    def _on_clipboard_texture_ready(self, clipboard, result):
+        try:
+            texture = clipboard.read_texture_finish(result)
+            if texture is None:
+                return
+            tw = texture.get_width()
+            th = texture.get_height()
+            # Download texture to bytes
+            pix_bytes = texture.save_to_png_bytes()
+            loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+            loader.write(pix_bytes.get_data())
+            loader.close()
+            pixbuf = loader.get_pixbuf()
+            if pixbuf is None:
+                return
+            pw = pixbuf.get_width()
+            ph = pixbuf.get_height()
+            has_alpha = pixbuf.get_has_alpha()
+            n_channels = pixbuf.get_n_channels()
+            rowstride = pixbuf.get_rowstride()
+            pixels = pixbuf.get_pixels()
+
+            # Create a new layer with the pasted content
+            da = self.drawing_area
+            layer_name = _("Pasted Layer")
+            new_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, da.width, da.height)
+            buf = new_surface.get_data()
+            img_stride = new_surface.get_stride()
+
+            for y in range(min(ph, da.height)):
+                for x in range(min(pw, da.width)):
+                    src_offset = y * rowstride + x * n_channels
+                    r = pixels[src_offset]
+                    g = pixels[src_offset + 1]
+                    b = pixels[src_offset + 2]
+                    a = pixels[src_offset + 3] if has_alpha else 255
+                    dst_offset = y * img_stride + x * 4
+                    buf[dst_offset] = b * a // 255
+                    buf[dst_offset + 1] = g * a // 255
+                    buf[dst_offset + 2] = r * a // 255
+                    buf[dst_offset + 3] = a
+
+            new_surface.mark_dirty()
+            insert_idx = da.active_layer_index + 1
+            da.layers.insert(insert_idx, {"name": layer_name, "surface": new_surface, "visible": True})
+            da.active_layer_index = insert_idx
+            da._sync_active_layer()
+            self._rebuild_layer_list()
+            da.queue_draw()
+        except (GLib.Error, Exception):
+            pass
+
+    def _cut_to_clipboard(self):
+        """Cut selection to clipboard"""
+        self._copy_to_clipboard()
+        self.drawing_area.cut_selection()
+
 
 class PaintBrushApp(Adw.Application):
     """Enhanced main application class"""
@@ -2410,13 +3029,32 @@ class PaintBrushApp(Adw.Application):
         page.set_title(_("Welcome to PaintBrush"))
         page.set_description(_("A simple painting app for Linux"))
 
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        content_box.set_halign(Gtk.Align.CENTER)
+
         btn = Gtk.Button(label=_("Get Started"))
         btn.add_css_class("suggested-action")
         btn.add_css_class("pill")
         btn.set_halign(Gtk.Align.CENTER)
         btn.set_margin_top(12)
         btn.connect("clicked", self._on_welcome_close, dialog)
-        page.set_child(btn)
+        content_box.append(btn)
+
+        # Show recent files if any
+        recent_files = self.settings.get("recent_files", [])
+        if recent_files:
+            recent_label = Gtk.Label(label=_("Recent Files:"))
+            recent_label.set_margin_top(12)
+            recent_label.add_css_class("heading")
+            content_box.append(recent_label)
+            for fpath in recent_files[:5]:
+                fname = os.path.basename(fpath)
+                file_btn = Gtk.Button(label=fname)
+                file_btn.set_tooltip_text(fpath)
+                file_btn.connect("clicked", self._on_welcome_open_recent, fpath, dialog, win)
+                content_box.append(file_btn)
+
+        page.set_child(content_box)
 
         box = Adw.ToolbarView()
         hb = Adw.HeaderBar()
@@ -2430,6 +3068,16 @@ class PaintBrushApp(Adw.Application):
         self.settings["welcome_shown"] = True
         _save_settings(self.settings)
         dialog.close()
+
+    def _on_welcome_open_recent(self, btn, filepath, dialog, win):
+        self.settings["welcome_shown"] = True
+        _save_settings(self.settings)
+        dialog.close()
+        if os.path.isfile(filepath):
+            win.drawing_area.load_image(filepath)
+            win.current_file = filepath
+            win._add_recent_file(filepath)
+            win.update_status_bar()
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -2487,13 +3135,22 @@ class PaintBrushApp(Adw.Application):
         self.set_accels_for_action("win.tool_spray", ["a"])
         self.set_accels_for_action("win.tool_arrow", ["w"])
         self.set_accels_for_action("win.tool_rounded_rectangle", ["<Shift>r"])
+        self.set_accels_for_action("win.tool_crop", ["<Shift>c"])
+        self.set_accels_for_action("win.tool_gradient", ["g"])
+
+        # Rotate shortcut
+        self.set_accels_for_action("win.rotate_90", ["<Control>r"])
+
+        # Crop confirm/cancel
+        self.set_accels_for_action("win.confirm_crop", ["Return"])
+        self.set_accels_for_action("win.cancel_crop", ["Escape"])
 
     def _on_about(self, action, param):
         about = Adw.AboutDialog()
         about.set_application_name(_("PaintBrush"))
         about.set_application_icon("com.danielnylander.paintbrush")
         about.set_developer_name("Daniel Nylander")
-        about.set_version("1.3.0")
+        about.set_version("1.4.0")
         about.set_website("https://github.com/yeager/paintbrush")
         about.set_issue_url("https://github.com/yeager/paintbrush/issues")
         about.set_license_type(Gtk.License.GPL_3_0)
