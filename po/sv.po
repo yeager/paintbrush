@@ -1,15 +1,15 @@
 # Translators:
 # Daniel Nylander <po@danielnylander.se>, 2026
-#
+# 
 msgid ""
 msgstr ""
 "Project-Id-Version: paintbrush 2.0.0\n"
 "POT-Creation-Date: 2026-03-15 13:47+0100\n"
 "Last-Translator: Daniel Nylander <po@danielnylander.se>, 2026\n"
 "Language-Team: Swedish (https://app.transifex.com/danielnylander/teams/306153/sv/)\n"
-"Language: sv\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Language: sv\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 msgid "1 minute"
@@ -49,10 +49,10 @@ msgid "Arrow"
 msgstr "Pil"
 
 msgid "Auto Levels"
-msgstr "Auto Nivåer"
+msgstr "Automatiska nivåer"
 
 msgid "Auto-save Interval"
-msgstr "Autosparintervall"
+msgstr "Intervall för automatisk sparning"
 
 msgid "B:"
 msgstr "B:"
@@ -64,7 +64,7 @@ msgid "Best"
 msgstr "Bäst"
 
 msgid "Bezier Path"
-msgstr "Bezier-väg"
+msgstr "Bezier-bana"
 
 msgid "Blend:"
 msgstr "Blandning:"
@@ -304,7 +304,7 @@ msgid "Keyboard Shortcuts"
 msgstr "Tangentbordsgenvägar"
 
 msgid "Lasso Select"
-msgstr "Lasso Välj"
+msgstr "Lassomarkering"
 
 msgid "Layer"
 msgstr "Lager"
@@ -340,7 +340,7 @@ msgid "Noise"
 msgstr "Buller"
 
 msgid "Noise…"
-msgstr "Buller..."
+msgstr "Brus..."
 
 msgid "Normal"
 msgstr "Normal"
@@ -424,7 +424,7 @@ msgid "Recent Files:"
 msgstr "Tidigare filer:"
 
 msgid "Rect Select"
-msgstr "Rect Välj"
+msgstr "Rektangelmarkering"
 
 msgid "Rectangle"
 msgstr "Rektangel"
@@ -451,7 +451,7 @@ msgid "Round"
 msgstr "Rund"
 
 msgid "Rounded Rect"
-msgstr "Rundad Rektangulär"
+msgstr "Rundad rektangulär"
 
 msgid "Rounded Rectangle"
 msgstr "Rundad rektangel"
@@ -481,13 +481,13 @@ msgid "Screen"
 msgstr "Skärm"
 
 msgid "Select"
-msgstr "Välj"
+msgstr "Markera"
 
 msgid "Select All"
 msgstr "Markera allt"
 
 msgid "Select None"
-msgstr "Välj inget"
+msgstr "Markera inget"
 
 msgid "Sharpen"
 msgstr "Skärpa"
@@ -496,10 +496,10 @@ msgid "Sharpen…"
 msgstr "Skärpa..."
 
 msgid "Shear"
-msgstr "Skära"
+msgstr "Klipp av"
 
 msgid "Shear…"
-msgstr "Shear..."
+msgstr "Klipp av..."
 
 msgid "Size:"
 msgstr "Storlek:"
@@ -508,10 +508,10 @@ msgid "Size: {}"
 msgstr "Storlek: {}"
 
 msgid "Smooth Brush"
-msgstr "Slät borste"
+msgstr "Slät pensel"
 
 msgid "Spray"
-msgstr "Spray"
+msgstr "Färgspruta"
 
 msgid "Square"
 msgstr "Fyrkant"
