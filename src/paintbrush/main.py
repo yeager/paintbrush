@@ -2388,6 +2388,8 @@ class PaintBrushWindow(Adw.ApplicationWindow):
 
     def update_status_bar(self):
         """Update all status bar elements"""
+        if not hasattr(self, 'status_tool_label'):
+            return
         da = self.drawing_area
         tool_names = {
             "brush": _("Brush"), "eraser": _("Eraser"), "line": _("Line"),

@@ -1,29 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background circle -->
-  <circle cx="64" cy="64" r="60" fill="#f9f9f9" stroke="#333" stroke-width="2"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a90d9"/>
+      <stop offset="1" stop-color="#3465a4"/>
+    </linearGradient>
+    <linearGradient id="palette" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f5f5f0"/>
+      <stop offset="1" stop-color="#e8e4dc"/>
+    </linearGradient>
+    <linearGradient id="brush-handle" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c4a35a"/>
+      <stop offset="1" stop-color="#a68b4b"/>
+    </linearGradient>
+  </defs>
   
-  <!-- Palette -->
-  <ellipse cx="64" cy="64" rx="40" ry="25" fill="#fff" stroke="#333" stroke-width="2"/>
+  <!-- Background -->
+  <rect width="128" height="128" rx="16" fill="url(#bg)"/>
   
-  <!-- Color blobs -->
-  <circle cx="45" cy="55" r="6" fill="#e74c3c"/>
-  <circle cx="60" cy="50" r="6" fill="#f39c12"/>
-  <circle cx="75" cy="55" r="6" fill="#f1c40f"/>
-  <circle cx="85" cy="70" r="6" fill="#2ecc71"/>
-  <circle cx="75" cy="80" r="6" fill="#3498db"/>
-  <circle cx="60" cy="82" r="6" fill="#9b59b6"/>
-  <circle cx="45" cy="78" r="6" fill="#34495e"/>
+  <!-- Painter's palette -->
+  <ellipse cx="58" cy="72" rx="38" ry="32" fill="url(#palette)" stroke="#bbb5a8" stroke-width="1.5"/>
+  <!-- Thumb hole -->
+  <ellipse cx="42" cy="68" rx="8" ry="7" fill="url(#bg)" stroke="#bbb5a8" stroke-width="1"/>
   
-  <!-- Paint brush -->
-  <g transform="translate(35, 25) rotate(45, 25, 25)">
+  <!-- Paint dabs on palette -->
+  <circle cx="55" cy="52" r="7" fill="#e74c3c"/>
+  <circle cx="72" cy="50" r="6" fill="#f39c12"/>
+  <circle cx="85" cy="58" r="6" fill="#27ae60"/>
+  <circle cx="82" cy="72" r="5.5" fill="#2980b9"/>
+  <circle cx="72" cy="82" r="5.5" fill="#8e44ad"/>
+  <circle cx="56" cy="86" r="5" fill="#e67e22"/>
+  
+  <!-- Paintbrush -->
+  <g transform="rotate(-45, 80, 30)">
     <!-- Brush handle -->
-    <rect x="20" y="35" width="8" height="30" rx="4" fill="#8b4513"/>
-    <!-- Metal ferrule -->
-    <rect x="19" y="32" width="10" height="8" fill="#c0c0c0"/>
-    <!-- Brush bristles -->
-    <ellipse cx="24" cy="28" rx="6" ry="8" fill="#ddd"/>
-    <!-- Paint on brush -->
-    <ellipse cx="24" cy="24" rx="3" ry="4" fill="#e74c3c"/>
+    <rect x="72" y="14" width="12" height="50" rx="2" fill="url(#brush-handle)" stroke="#8b7230" stroke-width="1"/>
+    <!-- Ferrule (metal band) -->
+    <rect x="70" y="60" width="16" height="8" rx="1" fill="#c0c0c0" stroke="#999" stroke-width="0.5"/>
+    <!-- Bristles -->
+    <path d="M72,68 L70,82 Q78,86 86,82 L84,68 Z" fill="#2c3e50"/>
+    <!-- Paint on tip -->
+    <ellipse cx="78" cy="83" rx="7" ry="4" fill="#e74c3c" opacity="0.9"/>
   </g>
 </svg>

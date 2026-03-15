@@ -1,8 +1,16 @@
 [Desktop Entry]
 Type=Application
-Exec=paintbrush
+Name=PaintBrush
+GenericName=Image Editor
+Comment=Simple painting and drawing application
+Exec=paintbrush %F
 Icon=com.danielnylander.paintbrush
 Terminal=false
-Categories=Graphics;2DGraphics;RasterGraphics;GTK;
 StartupNotify=true
-MimeType=image/png;image/jpeg;image/gif;
+Categories=Graphics;2DGraphics;RasterGraphics;GTK;
+Keywords=paint;draw;brush;image;layers;crop;gradient;
+MimeType=image/png;image/jpeg;image/gif;image/bmp;image/webp;image/svg+xml;image/tiff;
+Name[sv]=PaintBrush
+GenericName[sv]=Bildredigerare
+Comment[sv]=Enkelt rit- och målningsprogram
+Keywords[sv]=måla;rita;pensel;bild;lager;beskärning;gradient;
